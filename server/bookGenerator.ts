@@ -84,15 +84,10 @@ async function callAI(
     ...tokenParam,
   };
 
-  // NEVER set temperature for OpenAI reasoning models — they only accept the default (1)
-  // OpenRouter models generally support temperature; set it for all OpenRouter calls
-  if (provider === "openrouter") {
-    body.temperature = 0.8;
-  } else if (!isReasoningModel(model)) {
-    // Standard OpenAI models (GPT-4o, GPT-4.1, etc.) support temperature
-    body.temperature = 0.8;
-  }
-  // Reasoning models (o1, o3, o4-mini, etc.): no temperature field at all
+  // NOTE: We intentionally do NOT set temperature.
+  // OpenAI's newer models (gpt-5, o1, o3, o4-mini, etc.) reject custom temperature values.
+  // Omitting temperature entirely uses each model's default, which works universally.
+  // OpenRouter also works fine without an explicit temperature.
 
   const response = await fetch(url, {
     method: "POST",

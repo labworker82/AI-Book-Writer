@@ -1,0 +1,8 @@
+{
+  "query": "SELECT userId, apiProvider, textModel, imageModel, hasOpenaiKey FROM app_settings LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2DMstqsowEConp8.6548a389cd76 --database guM3tY94oioNnX28ZnAhwv --execute SELECT userId, apiProvider, textModel, imageModel, hasOpenaiKey FROM app_settings LIMIT 5;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'hasopenaikey' in 'field list'"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "query": "SELECT userId, apiProvider, textModel, imageModel FROM app_settings LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2DMstqsowEConp8.6548a389cd76 --database guM3tY94oioNnX28ZnAhwv --execute SELECT userId, apiProvider, textModel, imageModel FROM app_settings LIMIT 5;",
+  "rows": [
+    {
+      "userId": "1",
+      "apiProvider": "openai",
+      "textModel": "gpt-5",
+      "imageModel": "dall-e-3"
+    }
+  ],
+  "messages": [],
+  "stdout": "userId\tapiProvider\ttextModel\timageModel\n1\topenai\tgpt-5\tdall-e-3\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}
