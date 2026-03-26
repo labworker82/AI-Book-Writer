@@ -104,6 +104,56 @@ async function callAI(
   return data.choices?.[0]?.message?.content || "";
 }
 
+/**
+ * Robust JSON parser for outline responses.
+ * Handles: markdown code fences, raw JSON arrays, wrapped objects, and mixed text.
+ */
+function parseOutlineJSON(raw: string): ChapterOutline[] | null {
+  if (!raw || raw.trim().length === 0) return null;
+
+  // Strategy 1: Strip markdown code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) {
+    try {
+      const inner = fenceMatch[1].trim();
+      const parsed = JSON.parse(inner);
+      if (Array.isArray(parsed)) return parsed as ChapterOutline[];
+      if (parsed?.chapters) return parsed.chapters as ChapterOutline[];
+      if (parsed?.outline) return parsed.outline as ChapterOutline[];
+    } catch { /* try next strategy */ }
+  }
+
+  // Strategy 2: Find the first [ ... ] JSON array in the response
+  const arrayMatch = raw.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try {
+      const parsed = JSON.parse(arrayMatch[0]);
+      if (Array.isArray(parsed)) return parsed as ChapterOutline[];
+    } catch { /* try next strategy */ }
+  }
+
+  // Strategy 3: Try parsing the entire response as JSON
+  try {
+    const parsed = JSON.parse(raw.trim());
+    if (Array.isArray(parsed)) return parsed as ChapterOutline[];
+    if (parsed?.chapters) return parsed.chapters as ChapterOutline[];
+    if (parsed?.outline) return parsed.outline as ChapterOutline[];
+  } catch { /* try next strategy */ }
+
+  // Strategy 4: Find the first { ... } object and check if it wraps an array
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    try {
+      const parsed = JSON.parse(objectMatch[0]);
+      if (parsed?.chapters) return parsed.chapters as ChapterOutline[];
+      if (parsed?.outline) return parsed.outline as ChapterOutline[];
+      if (parsed?.sections) return parsed.sections as ChapterOutline[];
+    } catch { /* give up */ }
+  }
+
+  return null;
+}
+
 export const generateBookContent = {
   /**
    * Generate a full chapter outline for the book.
@@ -165,19 +215,14 @@ Return ONLY the JSON array, nothing else.`;
       provider
     );
 
-    // Parse JSON — handle both raw array and wrapped object responses
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed as ChapterOutline[];
-        if (parsed.chapters) return parsed.chapters as ChapterOutline[];
-        if (parsed.outline) return parsed.outline as ChapterOutline[];
-      } catch { /* ignore */ }
+    // Robust JSON parser — handles all response formats from gpt-5, gpt-4o, etc.
+    const parsed = parseOutlineJSON(raw);
+    if (!parsed) {
+      // Log the raw response for debugging
+      console.error("[bookGenerator] Failed to parse outline. Raw response:", raw.slice(0, 500));
       throw new Error("Failed to parse outline from AI response. The model returned unexpected content.");
     }
-
-    return JSON.parse(jsonMatch[0]) as ChapterOutline[];
+    return parsed;
   },
 
   /**
