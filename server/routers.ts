@@ -19,7 +19,77 @@ import {
   createBookImage,
 } from "./db";
 import { generateBookContent } from "./bookGenerator";
-import { generateImage } from "./_core/imageGeneration";
+import { storagePut } from "./storage";
+
+// Generate an image using the user's own OpenAI API key and selected model
+async function generateImageWithUserKey(
+  apiKey: string,
+  model: string,
+  prompt: string
+): Promise<string> {
+  // gpt-image-1 uses the new images/generations endpoint
+  const isGptImage = model === "gpt-image-1";
+  const isDalle3 = model === "dall-e-3";
+  const isDalle2 = model === "dall-e-2";
+
+  const url = "https://api.openai.com/v1/images/generations";
+
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    n: 1,
+  };
+
+  if (isGptImage) {
+    body.size = "1024x1024";
+    body.quality = "standard";
+    body.output_format = "png";
+  } else if (isDalle3) {
+    body.size = "1024x1024";
+    body.quality = "standard";
+    body.response_format = "b64_json";
+  } else {
+    // dall-e-2
+    body.size = "512x512";
+    body.response_format = "b64_json";
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Image generation failed: ${response.status} - ${err}`);
+  }
+
+  const data = (await response.json()) as any;
+  const item = data.data?.[0];
+  if (!item) throw new Error("No image returned from OpenAI");
+
+  // gpt-image-1 returns b64_json directly
+  if (item.b64_json) {
+    const buffer = Buffer.from(item.b64_json, "base64");
+    const { url: storedUrl } = await storagePut(
+      `book-images/${Date.now()}.png`,
+      buffer,
+      "image/png"
+    );
+    return storedUrl;
+  }
+
+  // If URL returned (dall-e-3 with url format)
+  if (item.url) {
+    return item.url;
+  }
+
+  throw new Error("Unexpected image response format from OpenAI");
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -36,17 +106,29 @@ export const appRouter = router({
   settings: router({
     get: protectedProcedure.query(async ({ ctx }) => {
       const settings = await getSettingsByUserId(ctx.user.id);
-      if (!settings) return { hasApiKey: false, textModel: "gpt-4o", imageModel: "gpt-image-1", openaiApiKey: null };
+      if (!settings) return {
+        hasApiKey: false,
+        hasOpenRouterKey: false,
+        apiProvider: "openai",
+        textModel: "gpt-4o",
+        imageModel: "gpt-image-1",
+        openaiApiKey: null,
+        openrouterApiKey: null,
+      };
       return {
         ...settings,
         openaiApiKey: settings.openaiApiKey ? "sk-..." + settings.openaiApiKey.slice(-4) : null,
+        openrouterApiKey: settings.openrouterApiKey ? "sk-or-..." + settings.openrouterApiKey.slice(-4) : null,
         hasApiKey: !!settings.openaiApiKey,
+        hasOpenRouterKey: !!settings.openrouterApiKey,
       };
     }),
 
     save: protectedProcedure
       .input(z.object({
         openaiApiKey: z.string().optional(),
+        openrouterApiKey: z.string().optional(),
+        apiProvider: z.enum(["openai", "openrouter"]).optional(),
         textModel: z.string().optional(),
         imageModel: z.string().optional(),
       }))
@@ -168,10 +250,22 @@ export const appRouter = router({
         const book = await getBookById(input.bookId, ctx.user.id);
         if (!book) throw new Error("Book not found");
         const settings = await getSettingsByUserId(ctx.user.id);
-        if (!settings?.openaiApiKey) throw new Error("OpenAI API key not configured. Please go to Settings.");
+
+        const provider = settings?.apiProvider || "openai";
+        const apiKey = provider === "openrouter"
+          ? settings?.openrouterApiKey
+          : settings?.openaiApiKey;
+
+        if (!apiKey) {
+          throw new Error(
+            provider === "openrouter"
+              ? "OpenRouter API key not configured. Please go to Settings."
+              : "OpenAI API key not configured. Please go to Settings."
+          );
+        }
 
         const outline = await generateBookContent.generateOutline(
-          book, input.numChapters, settings.openaiApiKey!, settings.textModel ?? "gpt-4o"
+          book, input.numChapters, apiKey, settings?.textModel ?? "gpt-4o", provider
         );
         await updateBook(input.bookId, ctx.user.id, { outline, totalChapters: outline.length });
         return { outline };
@@ -185,7 +279,13 @@ export const appRouter = router({
         const chapter = await getChapterById(input.chapterId, ctx.user.id);
         if (!chapter) throw new Error("Chapter not found");
         const settings = await getSettingsByUserId(ctx.user.id);
-        if (!settings?.openaiApiKey) throw new Error("OpenAI API key not configured. Please go to Settings.");
+
+        const provider = settings?.apiProvider || "openai";
+        const apiKey = provider === "openrouter"
+          ? settings?.openrouterApiKey
+          : settings?.openaiApiKey;
+
+        if (!apiKey) throw new Error("API key not configured. Please go to Settings.");
 
         const allChapters = await getChaptersByBookId(input.bookId);
         const previousChapters = allChapters
@@ -196,10 +296,12 @@ export const appRouter = router({
 
         try {
           const content = await generateBookContent.generateChapter(
-            book, chapter, previousChapters, settings.openaiApiKey!, settings.textModel ?? "gpt-4o"
+            book, chapter, previousChapters, apiKey, settings?.textModel ?? "gpt-4o", provider
           );
           const wordCount = content.split(/\s+/).filter(Boolean).length;
-          const summary = await generateBookContent.generateSummary(content, settings.openaiApiKey!, settings.textModel ?? "gpt-4o");
+          const summary = await generateBookContent.generateSummary(
+            content, apiKey, settings?.textModel ?? "gpt-4o", provider
+          );
 
           await updateChapter(input.chapterId, ctx.user.id, { content, summary, wordCount, status: "complete" });
 
@@ -248,16 +350,18 @@ export const appRouter = router({
         const book = await getBookById(input.bookId, ctx.user.id);
         if (!book) throw new Error("Book not found");
         const settings = await getSettingsByUserId(ctx.user.id);
-        if (!settings?.openaiApiKey) throw new Error("OpenAI API key not configured. Please go to Settings.");
+
+        // Images always use OpenAI regardless of text provider
+        const apiKey = settings?.openaiApiKey;
+        if (!apiKey) throw new Error("OpenAI API key required for image generation. Please add it in Settings.");
 
         const prompt: string = input.customPrompt ||
           `Professional book cover for "${book.title}". Genre: ${book.genre || "general"}. ${book.description || ""}. Cinematic, high quality, suitable for publishing.`;
 
-        const { url: rawUrl } = await generateImage({ prompt });
-        const url = rawUrl as string;
-        await createBookImage({ bookId: input.bookId, userId: ctx.user.id, type: "cover", prompt, imageUrl: url });
-        await updateBook(input.bookId, ctx.user.id, { coverImageUrl: url });
-        return { imageUrl: url };
+        const imageUrl = await generateImageWithUserKey(apiKey, settings?.imageModel ?? "dall-e-3", prompt);
+        await createBookImage({ bookId: input.bookId, userId: ctx.user.id, type: "cover", prompt, imageUrl });
+        await updateBook(input.bookId, ctx.user.id, { coverImageUrl: imageUrl });
+        return { imageUrl };
       }),
 
     illustration: protectedProcedure
@@ -266,16 +370,17 @@ export const appRouter = router({
         const book = await getBookById(input.bookId, ctx.user.id);
         if (!book) throw new Error("Book not found");
         const settings = await getSettingsByUserId(ctx.user.id);
-        if (!settings?.openaiApiKey) throw new Error("OpenAI API key not configured. Please go to Settings.");
 
-        const { url: rawUrl2 } = await generateImage({ prompt: input.prompt });
-        const url2 = rawUrl2 as string;
+        const apiKey = settings?.openaiApiKey;
+        if (!apiKey) throw new Error("OpenAI API key required for image generation. Please add it in Settings.");
+
+        const imageUrl = await generateImageWithUserKey(apiKey, settings?.imageModel ?? "dall-e-3", input.prompt);
         await createBookImage({
           bookId: input.bookId, userId: ctx.user.id,
           type: input.chapterId ? "chapter" : "illustration",
-          prompt: input.prompt, imageUrl: url2, chapterId: input.chapterId ?? undefined,
+          prompt: input.prompt, imageUrl, chapterId: input.chapterId ?? undefined,
         });
-        return { imageUrl: url2 };
+        return { imageUrl };
       }),
   }),
 

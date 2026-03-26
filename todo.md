@@ -59,3 +59,11 @@
 ## Tests
 - [x] Vitest tests for settings, books, chapters (7 tests passing)
 - [x] Auth logout test (1 test passing)
+
+## Bug Fixes & Improvements (Round 2)
+- [ ] Fix max_tokens → max_completion_tokens for newer OpenAI models
+- [ ] Add OpenRouter support as alternative API provider (with model list)
+- [ ] Auto-save book immediately when created (no data loss on tab switch)
+- [ ] Auto-save wizard form state to localStorage so it persists on refresh
+- [ ] Fix image generation (use correct OpenAI images API endpoint)
+- [ ] Show clear error messages when API calls fail

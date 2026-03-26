@@ -15,6 +15,13 @@
       "when": 1774542631363,
       "tag": "0001_careful_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1774547445424,
+      "tag": "0002_aspiring_arachne",
+      "breakpoints": true
     }
   ]
 }

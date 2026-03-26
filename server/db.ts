@@ -85,6 +85,8 @@ export async function getSettingsByUserId(userId: number) {
 
 export async function upsertSettings(userId: number, data: {
   openaiApiKey?: string;
+  openrouterApiKey?: string;
+  apiProvider?: string;
   textModel?: string;
   imageModel?: string;
 }) {

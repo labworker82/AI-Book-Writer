@@ -1,9 +1,9 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, BookOpen, Sparkles, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Sparkles, Check, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,10 +31,15 @@ const STEPS = [
   { id: 3, label: "Structure" },
 ];
 
+const DRAFT_KEY = "ai-book-writer-new-book-draft";
+
 export default function NewBook() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const [step, setStep] = useState(1);
+  const [savedBookId, setSavedBookId] = useState<number | null>(null);
+  const [autoSaved, setAutoSaved] = useState(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Step 1
   const [title, setTitle] = useState("");
@@ -59,20 +64,108 @@ export default function NewBook() {
     if (!authLoading && !isAuthenticated) navigate("/login");
   }, [isAuthenticated, authLoading, navigate]);
 
+  // Restore draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        const d = JSON.parse(draft);
+        if (d.title) setTitle(d.title);
+        if (d.description) setDescription(d.description);
+        if (d.genre) setGenre(d.genre);
+        if (d.subgenre) setSubgenre(d.subgenre);
+        if (d.targetAudience) setTargetAudience(d.targetAudience);
+        if (d.tone) setTone(d.tone);
+        if (d.authorName) setAuthorName(d.authorName);
+        if (d.writingStyle) setWritingStyle(d.writingStyle);
+        if (d.customKnowledge) setCustomKnowledge(d.customKnowledge);
+        if (d.includePreface !== undefined) setIncludePreface(d.includePreface);
+        if (d.includeDedication !== undefined) setIncludeDedication(d.includeDedication);
+        if (d.includeAcknowledgements !== undefined) setIncludeAcknowledgements(d.includeAcknowledgements);
+        if (d.includeEpilogue !== undefined) setIncludeEpilogue(d.includeEpilogue);
+        if (d.savedBookId) setSavedBookId(d.savedBookId);
+        if (d.step) setStep(d.step);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Auto-save to localStorage whenever any field changes
+  useEffect(() => {
+    const draft = {
+      title, description, genre, subgenre, targetAudience,
+      tone, authorName, writingStyle, customKnowledge,
+      includePreface, includeDedication, includeAcknowledgements, includeEpilogue,
+      savedBookId, step,
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [title, description, genre, subgenre, targetAudience, tone, authorName, writingStyle,
+    customKnowledge, includePreface, includeDedication, includeAcknowledgements, includeEpilogue,
+    savedBookId, step]);
+
+  const utils = trpc.useUtils();
+
+  // Create the book in DB as soon as title is entered (auto-save to DB)
   const createMutation = trpc.books.create.useMutation({
     onSuccess: (data) => {
-      toast.success("Book created! Now generating your outline...");
-      navigate(`/books/${data.bookId}`);
+      setSavedBookId(data.bookId);
+      setAutoSaved(true);
+      setTimeout(() => setAutoSaved(false), 2000);
     },
-    onError: (err) => toast.error("Failed to create book: " + err.message),
+    onError: () => { /* silent - will retry on final submit */ },
   });
 
-  const handleCreate = () => {
+  // Update book in DB for subsequent changes
+  const updateMutation = trpc.books.update.useMutation({
+    onSuccess: () => {
+      setAutoSaved(true);
+      setTimeout(() => setAutoSaved(false), 2000);
+    },
+    onError: () => { /* silent */ },
+  });
+
+  // Auto-save to DB when title has been entered
+  const triggerAutoSave = () => {
+    if (!title.trim()) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      const payload = {
+        title: title.trim() || "Untitled Book",
+        description: description.trim() || undefined,
+        genre: genre || undefined,
+        subgenre: subgenre.trim() || undefined,
+        targetAudience: targetAudience.trim() || undefined,
+        tone: tone || undefined,
+        authorName: authorName.trim() || undefined,
+        writingStyle: writingStyle.trim() || undefined,
+        customKnowledge: customKnowledge.trim() || undefined,
+        includePreface,
+        includeDedication,
+        includeAcknowledgements,
+        includeEpilogue,
+      };
+
+      if (savedBookId) {
+        updateMutation.mutate({ bookId: savedBookId, ...payload });
+      } else {
+        createMutation.mutate(payload);
+      }
+    }, 1200);
+  };
+
+  // Trigger auto-save whenever any field changes
+  useEffect(() => {
+    if (title.trim()) triggerAutoSave();
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  }, [title, description, genre, subgenre, targetAudience, tone, authorName, writingStyle,
+    customKnowledge, includePreface, includeDedication, includeAcknowledgements, includeEpilogue]);
+
+  const handleFinish = () => {
     if (!title.trim()) {
       toast.error("Please enter a book title");
       return;
     }
-    createMutation.mutate({
+
+    const payload = {
       title: title.trim(),
       description: description.trim() || undefined,
       genre: genre || undefined,
@@ -86,11 +179,34 @@ export default function NewBook() {
       includeDedication,
       includeAcknowledgements,
       includeEpilogue,
-    });
+    };
+
+    if (savedBookId) {
+      // Update existing book and navigate
+      updateMutation.mutate(
+        { bookId: savedBookId, ...payload },
+        {
+          onSuccess: () => {
+            localStorage.removeItem(DRAFT_KEY);
+            navigate(`/books/${savedBookId}`);
+          },
+          onError: (err) => toast.error("Failed to save book: " + err.message),
+        }
+      );
+    } else {
+      // Create new book
+      createMutation.mutate(payload, {
+        onSuccess: (data) => {
+          localStorage.removeItem(DRAFT_KEY);
+          toast.success("Book created! Now generate your outline.");
+          navigate(`/books/${data.bookId}`);
+        },
+        onError: (err) => toast.error("Failed to create book: " + err.message),
+      });
+    }
   };
 
   const canProceedStep1 = title.trim().length > 0;
-  const canProceedStep2 = true;
 
   return (
     <AppLayout>
@@ -100,13 +216,26 @@ export default function NewBook() {
           <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <BookOpen className="w-6 h-6 text-primary" />
               New Book
             </h1>
             <p className="text-muted-foreground text-sm mt-0.5">Fill in the details to generate your book</p>
           </div>
+          {/* Auto-save indicator */}
+          {autoSaved && (
+            <div className="flex items-center gap-1 text-xs text-green-400">
+              <Save className="w-3 h-3" />
+              <span>Auto-saved</span>
+            </div>
+          )}
+          {savedBookId && !autoSaved && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Save className="w-3 h-3" />
+              <span>Draft saved</span>
+            </div>
+          )}
         </div>
 
         {/* Step Indicator */}
@@ -140,7 +269,9 @@ export default function NewBook() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="bg-input border-border text-foreground"
+                autoFocus
               />
+              <p className="text-xs text-muted-foreground mt-1">Your book is auto-saved once you enter a title.</p>
             </div>
 
             <div>
@@ -272,53 +403,35 @@ export default function NewBook() {
                 </div>
               ))}
             </div>
-
-            <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
-              <p className="text-sm text-primary font-medium mb-1">What happens next?</p>
-              <p className="text-xs text-muted-foreground">
-                After creating the book, you'll be taken to the editor where you can generate the outline, review it, then generate each chapter one by one or all at once.
-              </p>
-            </div>
           </div>
         )}
 
         {/* Navigation Buttons */}
-        <div className="flex items-center justify-between mt-6">
-          <Button
-            variant="ghost"
-            onClick={() => step > 1 ? setStep(step - 1) : navigate("/dashboard")}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            {step === 1 ? "Cancel" : "Back"}
-          </Button>
+        <div className="flex justify-between mt-6">
+          {step > 1 ? (
+            <Button variant="outline" onClick={() => setStep(step - 1)} className="border-border text-foreground">
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back
+            </Button>
+          ) : (
+            <div />
+          )}
 
           {step < 3 ? (
             <Button
               onClick={() => setStep(step + 1)}
               disabled={step === 1 && !canProceedStep1}
-              className="btn-glow text-white font-semibold gap-2"
+              className="btn-glow text-white"
             >
-              Next
-              <ArrowRight className="w-4 h-4" />
+              Next <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           ) : (
             <Button
-              onClick={handleCreate}
-              disabled={createMutation.isPending}
-              className="btn-glow text-white font-semibold gap-2"
+              onClick={handleFinish}
+              disabled={createMutation.isPending || updateMutation.isPending}
+              className="btn-glow text-white"
             >
-              {createMutation.isPending ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Create Book
-                </>
-              )}
+              <Sparkles className="w-4 h-4 mr-2" />
+              {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Create Book & Generate Outline"}
             </Button>
           )}
         </div>

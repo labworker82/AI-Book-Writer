@@ -1,31 +1,64 @@
 /**
  * AI Book Generation Engine
- * Uses OpenAI API directly with user's own API key.
+ * Supports both OpenAI and OpenRouter as providers.
+ * Uses max_completion_tokens (not max_tokens) for compatibility with all modern models.
  * Implements context-aware chaining for coherent long-form books.
  */
 
 import type { Book, Chapter, ChapterOutline } from "../drizzle/schema";
 
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+// Models that use max_completion_tokens instead of max_tokens
+const MODERN_MODELS = [
+  "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini",
+  "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
+  "gpt-5", "gpt-5.4",
+];
 
-async function callOpenAI(
+function isModernModel(model: string): boolean {
+  return MODERN_MODELS.some((m) => model.startsWith(m));
+}
+
+function getApiUrl(provider: string): string {
+  if (provider === "openrouter") return "https://openrouter.ai/api/v1/chat/completions";
+  return "https://api.openai.com/v1/chat/completions";
+}
+
+async function callAI(
   apiKey: string,
   model: string,
   messages: { role: string; content: string }[],
-  maxTokens = 4096
+  maxTokens = 4096,
+  provider = "openai"
 ): Promise<string> {
-  const response = await fetch(OPENAI_API_URL, {
+  const url = getApiUrl(provider);
+
+  // Use max_completion_tokens for modern OpenAI models, max_tokens for older/OpenRouter
+  const tokenParam = provider === "openai" && isModernModel(model)
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+
+  // OpenRouter requires these headers
+  if (provider === "openrouter") {
+    headers["HTTP-Referer"] = "https://ai-book-writer.manus.space";
+    headers["X-Title"] = "AI Book Writer";
+  }
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: 0.8,
+    ...tokenParam,
+  };
+
+  const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.8,
-    }),
+    headers,
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -40,16 +73,14 @@ async function callOpenAI(
 export const generateBookContent = {
   /**
    * Generate a full chapter outline for the book.
-   * Returns an array of ChapterOutline objects.
    */
   async generateOutline(
     book: Book,
     numChapters: number,
     apiKey: string,
-    model: string
+    model: string,
+    provider = "openai"
   ): Promise<ChapterOutline[]> {
-    const bookType = book.genre?.toLowerCase().includes("fiction") ? "fiction" : "nonfiction";
-
     const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline. 
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
 
@@ -64,7 +95,7 @@ Themes: ${book.themes || "Not specified"}
 ${book.customKnowledge ? `Additional Context: ${book.customKnowledge}` : ""}
 
 Book structure requirements:
-${book.includePreface ? "- Include a Preface as chapter 1" : ""}
+${book.includePreface ? "- Include a Preface as the first section" : ""}
 ${book.includeDedication ? "- Include a Dedication page" : ""}
 - Include exactly ${numChapters} main chapters
 ${book.includeAcknowledgements ? "- Include Acknowledgements at the end" : ""}
@@ -82,14 +113,30 @@ Make the chapter titles compelling and the summaries specific and detailed. Each
 
 Return ONLY the JSON array, nothing else.`;
 
-    const raw = await callOpenAI(apiKey, model, [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ], 2048);
+    const raw = await callAI(
+      apiKey, model,
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      2048,
+      provider
+    );
 
-    // Parse JSON from response
+    // Parse JSON — handle both raw array and wrapped object responses
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Failed to parse outline from AI response");
+    if (!jsonMatch) {
+      // Try parsing the whole response as JSON
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as ChapterOutline[];
+        if (parsed.chapters) return parsed.chapters as ChapterOutline[];
+        if (parsed.outline) return parsed.outline as ChapterOutline[];
+      } catch {
+        // ignore
+      }
+      throw new Error("Failed to parse outline from AI response. The model returned unexpected content.");
+    }
 
     const outline = JSON.parse(jsonMatch[0]) as ChapterOutline[];
     return outline;
@@ -97,19 +144,19 @@ Return ONLY the JSON array, nothing else.`;
 
   /**
    * Generate a full chapter with context continuity.
-   * Passes previous chapter summaries to maintain coherence.
+   * Passes previous chapter summaries to maintain coherence across the entire book.
    */
   async generateChapter(
     book: Book,
     chapter: Chapter,
     previousChapters: { title: string; summary: string; content: string }[],
     apiKey: string,
-    model: string
+    model: string,
+    provider = "openai"
   ): Promise<string> {
     const outline = (book.outline as ChapterOutline[]) || [];
     const chapterOutlineItem = outline.find((o) => o.chapterNumber === chapter.chapterNumber);
 
-    // Build context from previous chapters
     const previousContext =
       previousChapters.length > 0
         ? `\n\nPREVIOUS CHAPTERS CONTEXT (for continuity):\n${previousChapters
@@ -117,7 +164,6 @@ Return ONLY the JSON array, nothing else.`;
             .join("\n")}`
         : "";
 
-    // Build the full outline context
     const fullOutline = outline
       .map((o) => `${o.chapterNumber}. ${o.title}: ${o.summary}`)
       .join("\n");
@@ -148,26 +194,27 @@ ${previousContext}
 
 Write the complete, full-length chapter content now. Be thorough, detailed, and engaging. Aim for at least 2,500 words.`;
 
-    const content = await callOpenAI(
-      apiKey,
-      model,
+    const content = await callAI(
+      apiKey, model,
       [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      4096
+      4096,
+      provider
     );
 
     return content.trim();
   },
 
   /**
-   * Generate a brief summary of a chapter for use as context in subsequent chapters.
+   * Generate a brief summary of a chapter for context chaining.
    */
   async generateSummary(
     chapterContent: string,
     apiKey: string,
-    model: string
+    model: string,
+    provider = "openai"
   ): Promise<string> {
     const prompt = `Summarize the following chapter content in 3-5 sentences, capturing the key points, arguments, and narrative developments. This summary will be used to maintain continuity in subsequent chapters.
 
@@ -176,11 +223,13 @@ ${chapterContent.slice(0, 3000)}${chapterContent.length > 3000 ? "..." : ""}
 
 Return only the summary, no labels or prefixes.`;
 
-    const summary = await callOpenAI(
+    const summary = await callAI(
       apiKey,
-      model,
+      // Always use a fast model for summaries to save costs
+      provider === "openrouter" ? model : "gpt-4o-mini",
       [{ role: "user", content: prompt }],
-      512
+      512,
+      provider
     );
 
     return summary.trim();
