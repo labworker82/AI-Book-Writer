@@ -67,3 +67,14 @@
 - [ ] Auto-save wizard form state to localStorage so it persists on refresh
 - [ ] Fix image generation (use correct OpenAI images API endpoint)
 - [ ] Show clear error messages when API calls fail
+
+## Round 3: Mobile + Book Length + Tone Controls
+- [x] Fix mobile layout - AppLayout hamburger/drawer sidebar
+- [x] Fix mobile layout - BookEditor stacked panels with toggle
+- [x] Fix mobile layout - Dashboard responsive padding and buttons
+- [x] Fix mobile layout - NewBook wizard responsive
+- [x] Fix mobile layout - Settings page responsive
+- [x] Add book length selector (Mini/Short/Compact/Medium/Extended/Full) with word targets
+- [x] Expand tone/voice controls with granular options (POV, formality, pacing, humor, etc.)
+- [x] Update bookGenerator to use per-chapter word count targets based on book length
+- [x] Fix temperature bug for reasoning models (o4-mini, o3-mini)

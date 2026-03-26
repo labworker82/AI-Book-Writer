@@ -48,21 +48,22 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="p-8">
+      <div className="p-4 md:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">My Books</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground">My Books</h1>
             <p className="text-muted-foreground mt-1">
               {books?.length ? `${books.length} book${books.length !== 1 ? "s" : ""} in your library` : "Start writing your first book"}
             </p>
           </div>
           <Button
             onClick={() => navigate("/books/new")}
-            className="btn-glow text-white font-semibold gap-2"
+            className="btn-glow text-white font-semibold gap-2 text-sm px-3 md:px-4"
           >
             <PlusCircle className="w-4 h-4" />
-            New Book
+            <span className="hidden sm:inline">New Book</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
 
@@ -143,7 +144,7 @@ export default function Dashboard() {
                     </span>
                     <button
                       onClick={(e) => handleDelete(book.id, book.title, e)}
-                      className="ml-2 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-all opacity-0 group-hover:opacity-100"
+                      className="ml-2 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-all md:opacity-0 md:group-hover:opacity-100"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

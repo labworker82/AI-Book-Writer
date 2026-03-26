@@ -164,6 +164,8 @@ export const appRouter = router({
         includeDedication: z.boolean().optional(),
         includeAcknowledgements: z.boolean().optional(),
         includeEpilogue: z.boolean().optional(),
+        targetWordCount: z.number().optional(),
+        suggestedChapters: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const bookId = await createBook({ ...input, userId: ctx.user.id, status: "draft" });
@@ -191,6 +193,8 @@ export const appRouter = router({
         includeDedication: z.boolean().optional(),
         includeAcknowledgements: z.boolean().optional(),
         includeEpilogue: z.boolean().optional(),
+        targetWordCount: z.number().optional(),
+        suggestedChapters: z.number().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { bookId, ...data } = input;
@@ -244,7 +248,7 @@ export const appRouter = router({
     outline: protectedProcedure
       .input(z.object({
         bookId: z.number(),
-        numChapters: z.number().min(3).max(30).default(10),
+        numChapters: z.number().min(0).max(30).default(0),
       }))
       .mutation(async ({ ctx, input }) => {
         const book = await getBookById(input.bookId, ctx.user.id);
@@ -264,8 +268,13 @@ export const appRouter = router({
           );
         }
 
+        // Use book's suggestedChapters if numChapters not explicitly provided
+        const chapterCount = input.numChapters > 0
+          ? input.numChapters
+          : (book.suggestedChapters || 15);
+
         const outline = await generateBookContent.generateOutline(
-          book, input.numChapters, apiKey, settings?.textModel ?? "gpt-4o", provider
+          book, chapterCount, apiKey, settings?.textModel ?? "gpt-4o", provider
         );
         await updateBook(input.bookId, ctx.user.id, { outline, totalChapters: outline.length });
         return { outline };

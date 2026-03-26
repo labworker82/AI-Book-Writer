@@ -67,6 +67,8 @@ export const books = mysqlTable("books", {
   status: mysqlEnum("status", ["draft", "generating", "complete"]).default("draft").notNull(),
   wordCount: int("wordCount").default(0),
   totalChapters: int("totalChapters").default(0),
+  targetWordCount: int("targetWordCount").default(30000),
+  suggestedChapters: int("suggestedChapters").default(15),
   includePreface: boolean("includePreface").default(false),
   includeDedication: boolean("includeDedication").default(false),
   includeAcknowledgements: boolean("includeAcknowledgements").default(false),

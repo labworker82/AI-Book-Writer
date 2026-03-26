@@ -1,26 +1,56 @@
 /**
  * AI Book Generation Engine
- * Supports both OpenAI and OpenRouter as providers.
- * Uses max_completion_tokens (not max_tokens) for compatibility with all modern models.
- * Implements context-aware chaining for coherent long-form books.
+ * - Supports OpenAI and OpenRouter providers
+ * - Uses max_completion_tokens for all modern OpenAI models
+ * - Never sets temperature for reasoning models (o1/o3/o4 series)
+ * - Targets per-chapter word count based on book's targetWordCount + chapter count
+ * - Context-aware chaining: each chapter receives full outline + prior summaries
  */
 
 import type { Book, Chapter, ChapterOutline } from "../drizzle/schema";
 
 // Models that use max_completion_tokens instead of max_tokens
 const MODERN_MODELS = [
-  "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini",
+  "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini", "o4",
   "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
   "gpt-5", "gpt-5.4",
 ];
 
+// O-series reasoning models: temperature must NOT be set (only default=1 supported)
+const REASONING_MODELS = ["o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini", "o4"];
+
 function isModernModel(model: string): boolean {
-  return MODERN_MODELS.some((m) => model.startsWith(m));
+  return MODERN_MODELS.some((m) => model === m || model.startsWith(m + "-") || model.startsWith(m + "."));
+}
+
+function isReasoningModel(model: string): boolean {
+  return REASONING_MODELS.some((m) => model === m || model.startsWith(m + "-") || model.startsWith(m + "."));
 }
 
 function getApiUrl(provider: string): string {
-  if (provider === "openrouter") return "https://openrouter.ai/api/v1/chat/completions";
-  return "https://api.openai.com/v1/chat/completions";
+  return provider === "openrouter"
+    ? "https://openrouter.ai/api/v1/chat/completions"
+    : "https://api.openai.com/v1/chat/completions";
+}
+
+/**
+ * Calculate the target words per chapter based on book settings.
+ * Distributes the total word count evenly across all chapters.
+ */
+function getTargetWordsPerChapter(book: Book, totalChapters: number): number {
+  const totalTarget = book.targetWordCount || 30000;
+  const chapters = totalChapters || book.totalChapters || 15;
+  const perChapter = Math.round(totalTarget / Math.max(chapters, 1));
+  // Clamp between 800 and 5000 words per chapter
+  return Math.min(5000, Math.max(800, perChapter));
+}
+
+/**
+ * Estimate tokens needed for a given word count.
+ * ~1.35 tokens per word is a safe estimate for prose.
+ */
+function wordsToTokens(words: number): number {
+  return Math.ceil(words * 1.35) + 512; // +512 for formatting overhead
 }
 
 async function callAI(
@@ -32,17 +62,17 @@ async function callAI(
 ): Promise<string> {
   const url = getApiUrl(provider);
 
-  // Use max_completion_tokens for modern OpenAI models, max_tokens for older/OpenRouter
-  const tokenParam = provider === "openai" && isModernModel(model)
-    ? { max_completion_tokens: maxTokens }
-    : { max_tokens: maxTokens };
+  // Use max_completion_tokens for modern OpenAI models; max_tokens for older/OpenRouter
+  const tokenParam =
+    provider === "openai" && isModernModel(model)
+      ? { max_completion_tokens: maxTokens }
+      : { max_tokens: maxTokens };
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
   };
 
-  // OpenRouter requires these headers
   if (provider === "openrouter") {
     headers["HTTP-Referer"] = "https://ai-book-writer.manus.space";
     headers["X-Title"] = "AI Book Writer";
@@ -51,9 +81,18 @@ async function callAI(
   const body: Record<string, unknown> = {
     model,
     messages,
-    temperature: 0.8,
     ...tokenParam,
   };
+
+  // NEVER set temperature for OpenAI reasoning models — they only accept the default (1)
+  // OpenRouter models generally support temperature; set it for all OpenRouter calls
+  if (provider === "openrouter") {
+    body.temperature = 0.8;
+  } else if (!isReasoningModel(model)) {
+    // Standard OpenAI models (GPT-4o, GPT-4.1, etc.) support temperature
+    body.temperature = 0.8;
+  }
+  // Reasoning models (o1, o3, o4-mini, etc.): no temperature field at all
 
   const response = await fetch(url, {
     method: "POST",
@@ -73,6 +112,7 @@ async function callAI(
 export const generateBookContent = {
   /**
    * Generate a full chapter outline for the book.
+   * Uses suggestedChapters from the book record if available.
    */
   async generateOutline(
     book: Book,
@@ -81,7 +121,12 @@ export const generateBookContent = {
     model: string,
     provider = "openai"
   ): Promise<ChapterOutline[]> {
-    const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline. 
+    // Use the book's suggestedChapters if caller passes 0 or default
+    const chapterCount = numChapters > 0 ? numChapters : (book.suggestedChapters || 15);
+    const targetWords = book.targetWordCount || 30000;
+    const wordsPerChapter = getTargetWordsPerChapter(book, chapterCount);
+
+    const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
 
     const userPrompt = `Create a complete book outline for the following book:
@@ -91,13 +136,15 @@ Genre: ${book.genre || "General"}${book.subgenre ? ` / ${book.subgenre}` : ""}
 Description: ${book.description || "Not provided"}
 Target Audience: ${book.targetAudience || "General readers"}
 Tone: ${book.tone || "Professional and engaging"}
-Themes: ${book.themes || "Not specified"}
-${book.customKnowledge ? `Additional Context: ${book.customKnowledge}` : ""}
+Writing Style: ${book.writingStyle || "Clear and engaging"}
+${book.customKnowledge ? `Additional Context/Knowledge: ${book.customKnowledge}` : ""}
+
+Book length target: ~${targetWords.toLocaleString()} words total (~${wordsPerChapter.toLocaleString()} words per chapter)
 
 Book structure requirements:
 ${book.includePreface ? "- Include a Preface as the first section" : ""}
 ${book.includeDedication ? "- Include a Dedication page" : ""}
-- Include exactly ${numChapters} main chapters
+- Include exactly ${chapterCount} main chapters
 ${book.includeAcknowledgements ? "- Include Acknowledgements at the end" : ""}
 ${book.includeEpilogue ? "- Include an Epilogue at the end" : ""}
 
@@ -126,25 +173,21 @@ Return ONLY the JSON array, nothing else.`;
     // Parse JSON — handle both raw array and wrapped object responses
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      // Try parsing the whole response as JSON
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed as ChapterOutline[];
         if (parsed.chapters) return parsed.chapters as ChapterOutline[];
         if (parsed.outline) return parsed.outline as ChapterOutline[];
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
       throw new Error("Failed to parse outline from AI response. The model returned unexpected content.");
     }
 
-    const outline = JSON.parse(jsonMatch[0]) as ChapterOutline[];
-    return outline;
+    return JSON.parse(jsonMatch[0]) as ChapterOutline[];
   },
 
   /**
    * Generate a full chapter with context continuity.
-   * Passes previous chapter summaries to maintain coherence across the entire book.
+   * Targets the correct word count based on book length settings.
    */
   async generateChapter(
     book: Book,
@@ -156,6 +199,9 @@ Return ONLY the JSON array, nothing else.`;
   ): Promise<string> {
     const outline = (book.outline as ChapterOutline[]) || [];
     const chapterOutlineItem = outline.find((o) => o.chapterNumber === chapter.chapterNumber);
+    const totalChapters = outline.filter(c => c.type === "chapter").length || book.totalChapters || 15;
+    const targetWordsPerChapter = getTargetWordsPerChapter(book, totalChapters);
+    const maxTokens = wordsToTokens(targetWordsPerChapter);
 
     const previousContext =
       previousChapters.length > 0
@@ -169,7 +215,7 @@ Return ONLY the JSON array, nothing else.`;
       .join("\n");
 
     const systemPrompt = `You are a professional author writing a ${book.genre || "general"} book called "${book.title}".
-Your writing style is: ${book.writingStyle || "engaging, clear, and professional"}.
+Writing style: ${book.writingStyle || "engaging, clear, and professional"}.
 Tone: ${book.tone || "professional and accessible"}.
 Target audience: ${book.targetAudience || "general readers"}.
 ${book.customKnowledge ? `Domain knowledge to incorporate: ${book.customKnowledge}` : ""}
@@ -177,10 +223,10 @@ ${book.customKnowledge ? `Domain knowledge to incorporate: ${book.customKnowledg
 CRITICAL RULES:
 - Write in a natural, human voice. Do NOT sound like AI.
 - Maintain consistency with all previous chapters.
-- Each chapter should be substantial — aim for 2,500-4,000 words.
+- Target approximately ${targetWordsPerChapter.toLocaleString()} words for this chapter.
 - Use vivid examples, stories, and concrete details.
-- Do NOT include chapter number or "Chapter X:" in the output — just the content.
-- Start directly with the chapter content.`;
+- Do NOT include chapter number or "Chapter X:" prefix — start directly with the content.
+- Do NOT add meta-commentary like "In this chapter..." at the start.`;
 
     const userPrompt = `Write the full content for this chapter:
 
@@ -192,7 +238,7 @@ FULL BOOK OUTLINE (for context and continuity):
 ${fullOutline}
 ${previousContext}
 
-Write the complete, full-length chapter content now. Be thorough, detailed, and engaging. Aim for at least 2,500 words.`;
+Write the complete, full-length chapter content now. Be thorough, detailed, and engaging. Target ${targetWordsPerChapter.toLocaleString()} words.`;
 
     const content = await callAI(
       apiKey, model,
@@ -200,7 +246,7 @@ Write the complete, full-length chapter content now. Be thorough, detailed, and 
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      4096,
+      maxTokens,
       provider
     );
 
@@ -209,6 +255,7 @@ Write the complete, full-length chapter content now. Be thorough, detailed, and 
 
   /**
    * Generate a brief summary of a chapter for context chaining.
+   * Always uses a fast/cheap model to minimize costs.
    */
   async generateSummary(
     chapterContent: string,
@@ -223,10 +270,12 @@ ${chapterContent.slice(0, 3000)}${chapterContent.length > 3000 ? "..." : ""}
 
 Return only the summary, no labels or prefixes.`;
 
+    // Always use a fast model for summaries to save costs
+    const summaryModel = provider === "openrouter" ? model : "gpt-4o-mini";
+
     const summary = await callAI(
       apiKey,
-      // Always use a fast model for summaries to save costs
-      provider === "openrouter" ? model : "gpt-4o-mini",
+      summaryModel,
       [{ role: "user", content: prompt }],
       512,
       provider

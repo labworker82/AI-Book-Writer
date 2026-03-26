@@ -22,6 +22,13 @@
       "when": 1774547445424,
       "tag": "0002_aspiring_arachne",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1774549071632,
+      "tag": "0003_normal_star_brand",
+      "breakpoints": true
     }
   ]
 }
