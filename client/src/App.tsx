@@ -4,12 +4,21 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import NewBook from "./pages/NewBook";
+import BookEditor from "./pages/BookEditor";
+import Settings from "./pages/Settings";
+import Login from "./pages/Login";
 
 function Router() {
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
+      <Route path={"/"} component={Dashboard} />
+      <Route path={"/dashboard"} component={Dashboard} />
+      <Route path={"/books/new"} component={NewBook} />
+      <Route path={"/books/:id"} component={BookEditor} />
+      <Route path={"/settings"} component={Settings} />
+      <Route path={"/login"} component={Login} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -19,7 +28,7 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="light">
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
           <Router />
