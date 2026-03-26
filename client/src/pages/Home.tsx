@@ -1,25 +1,62 @@
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
-
 /**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Best Practices, Design Guide and Common Pitfalls
+ * AI Book Writer — Landing Page
+ * Design: Dark Tech Premium
+ * Colors: Ink (#0B1220), Blueprint Blue (#4F66FF), Ghost Purple (#C65BFF)
+ * Fonts: Sora (display), Outfit (body)
  */
+
+import { useEffect } from "react";
+import Navbar from "@/components/Navbar";
+import HeroSection from "@/components/HeroSection";
+import WhySection from "@/components/WhySection";
+import FeaturesSection from "@/components/FeaturesSection";
+import WorkflowSection from "@/components/WorkflowSection";
+import GenresSection from "@/components/GenresSection";
+import ComparisonSection from "@/components/ComparisonSection";
+import TestimonialsSection from "@/components/TestimonialsSection";
+import BonusSection from "@/components/BonusSection";
+import PricingSection from "@/components/PricingSection";
+import GuaranteeSection from "@/components/GuaranteeSection";
+import FAQSection from "@/components/FAQSection";
+import CTASection from "@/components/CTASection";
+import Footer from "@/components/Footer";
+
 export default function Home() {
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  // Intersection observer for fade-up animations
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("visible");
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    const elements = document.querySelectorAll(".fade-up");
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
+    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
+      <Navbar />
+      <HeroSection />
+      <WhySection />
+      <FeaturesSection />
+      <WorkflowSection />
+      <GenresSection />
+      <ComparisonSection />
+      <TestimonialsSection />
+      <BonusSection />
+      <PricingSection />
+      <GuaranteeSection />
+      <FAQSection />
+      <CTASection />
+      <Footer />
     </div>
   );
 }
