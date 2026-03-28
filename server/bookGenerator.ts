@@ -58,7 +58,8 @@ async function callAI(
   model: string,
   messages: { role: string; content: string }[],
   maxTokens = 4096,
-  provider = "openai"
+  provider = "openai",
+  responseFormat?: { type: "json_object" | "text" }
 ): Promise<string> {
   const url = getApiUrl(provider);
 
@@ -87,6 +88,12 @@ async function callAI(
     ...tokenParam,
   };
 
+  // Add response_format if specified (forces JSON output, prevents null content)
+  // Only add for non-reasoning models (o1/o3/o4 don't support response_format)
+  if (responseFormat && !isReasoningModel(model)) {
+    body.response_format = responseFormat;
+  }
+
   // NOTE: We intentionally do NOT set temperature.
   // OpenAI's newer models (gpt-5, o1, o3, o4-mini, etc.) reject custom temperature values.
   // Omitting temperature entirely uses each model's default, which works universally.
@@ -104,7 +111,44 @@ async function callAI(
   }
 
   const data = (await response.json()) as any;
-  return data.choices?.[0]?.message?.content || "";
+
+  // Handle multiple OpenAI response shapes (GPT-5, Responses API, standard chat completions)
+  // Shape 1: Standard chat completions - choices[0].message.content
+  const choice = data.choices?.[0];
+  if (choice) {
+    const msg = choice.message;
+    // Check for refusal first
+    if (msg?.refusal) {
+      throw new Error(`Model refused the request: ${msg.refusal}`);
+    }
+    // Standard content field (string)
+    if (typeof msg?.content === "string" && msg.content.trim()) {
+      return msg.content;
+    }
+    // Content as array (multimodal format)
+    if (Array.isArray(msg?.content)) {
+      const textParts = msg.content
+        .filter((p: any) => p.type === "text")
+        .map((p: any) => p.text)
+        .join("");
+      if (textParts.trim()) return textParts;
+    }
+  }
+
+  // Shape 2: Responses API style (output_text at top level)
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  // Shape 3: Responses API nested output array
+  const outputText = data.output?.[0]?.content?.[0]?.text;
+  if (typeof outputText === "string" && outputText.trim()) {
+    return outputText;
+  }
+
+  // Log full response for debugging if we got nothing
+  console.error("[callAI] Unexpected response shape. Keys:", Object.keys(data), "Choice:", JSON.stringify(choice?.message || {}).slice(0, 300));
+  return "";
 }
 
 /**
@@ -174,6 +218,10 @@ export const generateBookContent = {
     const targetWords = book.targetWordCount || 30000;
     const wordsPerChapter = getTargetWordsPerChapter(book, chapterCount);
 
+    // Force JSON output mode where supported (gpt-4o, gpt-4.1, gpt-4-turbo, etc.)
+    // This prevents markdown wrapping and ensures parseable output
+    const supportsJsonMode = !model.startsWith("o1") && !model.startsWith("o3") && !model.startsWith("o4");
+
     const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
 
@@ -208,6 +256,8 @@ Make the chapter titles compelling and the summaries specific and detailed. Each
 
 Return ONLY the JSON array, nothing else.`;
 
+    // Use json_object response format to prevent null content from GPT-5/GPT-4o
+    // This is the most reliable way to get parseable JSON from modern OpenAI models
     const raw = await callAI(
       apiKey, model,
       [
@@ -215,7 +265,8 @@ Return ONLY the JSON array, nothing else.`;
         { role: "user", content: userPrompt },
       ],
       2048,
-      provider
+      provider,
+      provider === "openai" ? { type: "json_object" } : undefined
     );
 
     // Robust JSON parser — handles all response formats from gpt-5, gpt-4o, etc.
