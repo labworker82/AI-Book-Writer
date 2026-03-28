@@ -14,18 +14,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import AppLayout from "@/components/AppLayout";
 
 // Popular OpenRouter models — user can also type any model ID manually
+// Top 10 most recent & capable text-generation models on OpenRouter (as of March 2026)
 const POPULAR_OPENROUTER_MODELS = [
+  { value: "xiaomi/mimo-v2-pro", label: "MiMo-V2-Pro — Xiaomi flagship, 1M ctx, #1 coding (Mar 2026)" },
+  { value: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini — OpenAI, 400K ctx, fast & capable (Mar 2026)" },
+  { value: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano — OpenAI, 400K ctx, fastest/cheapest (Mar 2026)" },
+  { value: "x-ai/grok-4.20-beta", label: "Grok 4.20 Beta — xAI, 2M ctx, lowest hallucination rate (Mar 2026)" },
+  { value: "nvidia/nemotron-3-super-120b-a12b", label: "Nemotron 3 Super — NVIDIA 120B MoE, 262K ctx (Mar 2026)" },
+  { value: "mistralai/mistral-small-4", label: "Mistral Small 4 — Multimodal + agentic, 262K ctx (Mar 2026)" },
+  { value: "minimax/minimax-m2.7", label: "MiniMax M2.7 — Agentic, 205K ctx, strong at docs (Mar 2026)" },
   { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet — Best for long-form writing" },
   { value: "anthropic/claude-3-opus", label: "Claude 3 Opus — Most powerful Claude" },
-  { value: "anthropic/claude-3.5-haiku", label: "Claude 3.5 Haiku — Fast & affordable" },
-  { value: "google/gemini-pro-1.5", label: "Gemini 1.5 Pro — 1M token context" },
-  { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash — Latest Google" },
-  { value: "openai/gpt-4o", label: "GPT-4o via OpenRouter" },
-  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini via OpenRouter" },
-  { value: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B — Open source" },
-  { value: "deepseek/deepseek-chat", label: "DeepSeek V3 — Budget friendly" },
-  { value: "deepseek/deepseek-r1", label: "DeepSeek R1 — Reasoning model" },
-  { value: "mistralai/mistral-large", label: "Mistral Large" },
+  { value: "deepseek/deepseek-r1", label: "DeepSeek R1 — Reasoning model, budget friendly" },
   { value: "custom", label: "Custom model ID (type below)..." },
 ];
 
@@ -42,7 +42,7 @@ export default function Settings() {
   // OpenRouter (writing)
   const [openrouterKey, setOpenrouterKey] = useState("");
   const [showOrKey, setShowOrKey] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("anthropic/claude-3.5-sonnet");
+  const [selectedModel, setSelectedModel] = useState("xiaomi/mimo-v2-pro");
   const [customModel, setCustomModel] = useState("");
   const [isCustomModel, setIsCustomModel] = useState(false);
 
@@ -66,7 +66,7 @@ export default function Settings() {
       setImageModel(settings.imageModel || "dall-e-3");
 
       // Determine if the saved textModel is in the popular list or custom
-      const savedModel = settings.textModel || "anthropic/claude-3.5-sonnet";
+      const savedModel = settings.textModel || "xiaomi/mimo-v2-pro";
       const isInList = POPULAR_OPENROUTER_MODELS.some(
         (m) => m.value === savedModel && m.value !== "custom"
       );
@@ -94,7 +94,7 @@ export default function Settings() {
   const getEffectiveModel = () => {
     if (isCustomModel && customModel.trim()) return customModel.trim();
     if (selectedModel !== "custom") return selectedModel;
-    return "anthropic/claude-3.5-sonnet";
+    return "xiaomi/mimo-v2-pro";
   };
 
   const saveMutation = trpc.settings.save.useMutation({
@@ -256,7 +256,7 @@ export default function Settings() {
                   </Label>
                   <Input
                     type="text"
-                    placeholder="e.g. anthropic/claude-opus-4-5"
+                    placeholder="e.g. anthropic/claude-opus-4, openai/gpt-5.4-mini"
                     value={customModel}
                     onChange={(e) => setCustomModel(e.target.value)}
                     className="bg-input border-border text-foreground h-11"
