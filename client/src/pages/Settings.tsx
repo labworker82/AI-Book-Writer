@@ -73,7 +73,6 @@ export default function Settings() {
     }
   }, [settings]);
 
-  // When provider changes, reset text model to a sensible default
   const handleProviderChange = (val: "openai" | "openrouter") => {
     setApiProvider(val);
     if (val === "openai") setTextModel("gpt-4o");
@@ -138,10 +137,10 @@ export default function Settings() {
             </p>
             <Tabs value={apiProvider} onValueChange={(v) => handleProviderChange(v as "openai" | "openrouter")}>
               <TabsList className="grid grid-cols-2 bg-muted/50 w-full">
-                <TabsTrigger value="openai" className="data-[state=active]:bg-primary data-[state=active]:text-white">
+                <TabsTrigger value="openai" className="data-[state=active]:bg-primary data-[state=active]:text-white min-h-[40px]">
                   OpenAI
                 </TabsTrigger>
-                <TabsTrigger value="openrouter" className="data-[state=active]:bg-primary data-[state=active]:text-white">
+                <TabsTrigger value="openrouter" className="data-[state=active]:bg-primary data-[state=active]:text-white min-h-[40px]">
                   OpenRouter
                 </TabsTrigger>
               </TabsList>
@@ -168,15 +167,33 @@ export default function Settings() {
                 </div>
               )}
               <div className="relative">
+                {/*
+                  FIX: Use type="text" when showing key, prevent password autofill.
+                  - autoComplete="off" prevents browser autofill
+                  - autoCorrect="off" prevents iOS autocorrect
+                  - autoCapitalize="off" prevents iOS autocapitalize
+                  - spellCheck={false} prevents spell check UI
+                  - data-1p-ignore prevents 1Password from detecting this field
+                  - data-lpignore prevents LastPass from detecting this field
+                  - inputMode="text" ensures full text keyboard on mobile
+                */}
                 <Input
                   type={showKey ? "text" : "password"}
                   placeholder={settings?.hasApiKey ? "Enter new key to replace..." : "sk-..."}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  className="bg-input border-border text-foreground pr-10"
+                  className="bg-input border-border text-foreground pr-10 h-10"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  enterKeyHint="done"
                 />
                 <button type="button" onClick={() => setShowKey(!showKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1">
                   {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
@@ -204,10 +221,18 @@ export default function Settings() {
                   placeholder={settings?.hasOpenRouterKey ? "Enter new key to replace..." : "sk-or-..."}
                   value={openrouterKey}
                   onChange={(e) => setOpenrouterKey(e.target.value)}
-                  className="bg-input border-border text-foreground pr-10"
+                  className="bg-input border-border text-foreground pr-10 h-10"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  enterKeyHint="done"
                 />
                 <button type="button" onClick={() => setShowOrKey(!showOrKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1">
                   {showOrKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
@@ -233,12 +258,12 @@ export default function Settings() {
                 : "Choose the OpenAI model for writing book content."}
             </p>
             <Select value={textModel} onValueChange={setTextModel}>
-              <SelectTrigger className="bg-input border-border text-foreground">
+              <SelectTrigger className="bg-input border-border text-foreground h-10">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-card border-border max-h-64">
                 {textModels.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="text-foreground hover:bg-muted">
+                  <SelectItem key={m.value} value={m.value} className="text-foreground hover:bg-muted min-h-[40px]">
                     {m.label}
                   </SelectItem>
                 ))}
@@ -257,12 +282,12 @@ export default function Settings() {
               Always uses your OpenAI key. DALL-E 3 is recommended for book covers and illustrations.
             </p>
             <Select value={imageModel} onValueChange={setImageModel}>
-              <SelectTrigger className="bg-input border-border text-foreground">
+              <SelectTrigger className="bg-input border-border text-foreground h-10">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-card border-border">
                 {IMAGE_MODELS.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="text-foreground hover:bg-muted">
+                  <SelectItem key={m.value} value={m.value} className="text-foreground hover:bg-muted min-h-[40px]">
                     {m.label}
                   </SelectItem>
                 ))}
@@ -274,7 +299,7 @@ export default function Settings() {
           <Button
             onClick={handleSave}
             disabled={saveMutation.isPending}
-            className="w-full btn-glow text-white font-semibold py-3 rounded-xl"
+            className="w-full btn-glow text-white font-semibold py-3 rounded-xl min-h-[48px]"
           >
             {saveMutation.isPending ? "Saving..." : saved ? "✓ Saved!" : "Save Settings"}
           </Button>

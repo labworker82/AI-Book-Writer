@@ -172,3 +172,26 @@
     background-size: 28px 28px;
   }
 }
+
+/* ============================================
+   Mobile viewport height fix
+   ============================================ */
+
+/* Fix for mobile browsers where 100vh includes the address bar */
+@supports (height: 100dvh) {
+  .min-h-screen {
+    min-height: 100dvh !important;
+  }
+}
+
+/* Ensure inputs always get full text keyboard on mobile */
+input:not([type="number"]):not([type="email"]):not([type="tel"]):not([type="url"]) {
+  -webkit-text-security: none;
+}
+
+/* Prevent iOS zoom on input focus (inputs must be >= 16px) */
+@media screen and (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}

@@ -78,3 +78,13 @@
 - [x] Expand tone/voice controls with granular options (POV, formality, pacing, humor, etc.)
 - [x] Update bookGenerator to use per-chapter word count targets based on book length
 - [x] Fix temperature bug for reasoning models (o4-mini, o3-mini)
+
+## Mobile Fixes (Round 4)
+- [x] Fix viewport meta: add interactive-widget=resizes-content to client/index.html
+- [x] Fix input.tsx: remove IME composition wrapping that breaks mobile keyboards
+- [x] Fix textarea.tsx: same composition fix as input.tsx
+- [x] Fix AppLayout.tsx: 100dvh viewport height, 44px minimum touch targets
+- [x] Fix BookEditor.tsx: chapter count input type="text" inputMode="numeric", dvh, 44px touch targets
+- [x] Fix Settings.tsx: API key inputs with autoComplete="off", data-1p-ignore, inputMode="text"
+- [x] Append mobile CSS fixes to index.css (16px font size, dvh fallback)
+- [x] Add enterKeyHint to NewBook.tsx step inputs

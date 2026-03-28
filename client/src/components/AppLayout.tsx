@@ -36,7 +36,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      /* FIX: Use dvh with vh fallback for mobile */
+      <div className="bg-background flex items-center justify-center" style={{ minHeight: '100dvh' }}>
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -80,7 +81,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
       )}
 
-      {/* Nav */}
+      {/* Nav — FIX: Increased touch targets */}
       <nav className="flex-1 p-3 space-y-1 mt-2">
         {navItems.map((item) => {
           const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
@@ -89,10 +90,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
               key={item.href}
               onClick={() => navigate(item.href)}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all min-h-[44px]",
                 isActive
                   ? "bg-primary/15 text-primary border border-primary/20"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent/80"
               )}
             >
               <item.icon className="w-4 h-4 flex-shrink-0" />
@@ -116,7 +117,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
           <button
             onClick={() => logout()}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-2 min-w-[36px] min-h-[36px] flex items-center justify-center"
             title="Sign out"
           >
             <LogOut className="w-4 h-4" />
@@ -127,13 +128,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
   );
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* ── Desktop Sidebar (hidden on mobile) ── */}
+    /* FIX: Use dvh for proper mobile viewport */
+    <div className="bg-background flex" style={{ minHeight: '100dvh' }}>
+      {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-sidebar border-r border-sidebar-border flex-col fixed h-full z-20">
         <SidebarContent />
       </aside>
 
-      {/* ── Mobile: Top Header Bar ── */}
+      {/* Mobile: Top Header Bar — FIX: Increased touch target for menu button */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-4 h-14">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg btn-glow flex items-center justify-center">
@@ -143,14 +145,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
         <button
           onClick={() => setMobileOpen(true)}
-          className="text-sidebar-foreground p-1.5 rounded-lg hover:bg-sidebar-accent transition-colors"
+          className="text-sidebar-foreground p-2 rounded-lg hover:bg-sidebar-accent active:bg-sidebar-accent/80 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Open menu"
         >
           <Menu className="w-5 h-5" />
         </button>
       </div>
 
-      {/* ── Mobile Drawer Overlay ── */}
+      {/* Mobile Drawer Overlay */}
       {mobileOpen && (
         <div
           className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
@@ -158,17 +160,16 @@ export default function AppLayout({ children }: AppLayoutProps) {
         />
       )}
 
-      {/* ── Mobile Drawer ── */}
+      {/* Mobile Drawer */}
       <aside
         className={cn(
           "md:hidden fixed top-0 left-0 h-full w-72 bg-sidebar border-r border-sidebar-border flex flex-col z-50 transition-transform duration-300",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Close button */}
         <button
           onClick={() => setMobileOpen(false)}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-lg"
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-2 rounded-lg min-w-[40px] min-h-[40px] flex items-center justify-center"
           aria-label="Close menu"
         >
           <X className="w-5 h-5" />
@@ -176,8 +177,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <SidebarContent />
       </aside>
 
-      {/* ── Main Content ── */}
-      <main className="flex-1 md:ml-64 min-h-screen pt-14 md:pt-0">
+      {/* Main Content */}
+      <main className="flex-1 md:ml-64 pt-14 md:pt-0" style={{ minHeight: '100dvh' }}>
         {children}
       </main>
     </div>

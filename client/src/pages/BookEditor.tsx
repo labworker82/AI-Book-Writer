@@ -37,11 +37,10 @@ export default function BookEditor() {
   const [selectedChapterId, setSelectedChapterId] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState("");
   const [isEditingContent, setIsEditingContent] = useState(false);
-  const [numChapters, setNumChapters] = useState(0); // 0 = use book's suggestedChapters
+  const [numChapters, setNumChapters] = useState(0);
   const [imagePrompt, setImagePrompt] = useState("");
   const [generatingChapterId, setGeneratingChapterId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("chapters");
-  // Mobile: show chapter panel or content panel
   const [mobileView, setMobileView] = useState<"list" | "editor">("list");
 
   useEffect(() => {
@@ -197,7 +196,7 @@ export default function BookEditor() {
     );
   }
 
-  // ── Chapter List Panel (shared between desktop sidebar and mobile view) ──
+  // ── Chapter List Panel ──
   const ChapterListPanel = () => (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
       <TabsList className="mx-3 mt-3 grid grid-cols-3 bg-muted/50 h-8 flex-shrink-0">
@@ -218,13 +217,20 @@ export default function BookEditor() {
               </div>
             )}
             <div className="flex items-center gap-2 mb-3 justify-center">
+              {/* FIX: Use type="text" with inputMode="numeric" for proper mobile keyboard */}
               <Input
-                type="number"
-                min={3}
-                max={30}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                enterKeyHint="done"
                 value={numChapters || book?.suggestedChapters || 15}
-                onChange={(e) => setNumChapters(parseInt(e.target.value) || 0)}
-                className="bg-input border-border text-foreground text-xs h-8 w-20"
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, "");
+                  const num = parseInt(val) || 0;
+                  setNumChapters(Math.min(30, Math.max(0, num)));
+                }}
+                className="bg-input border-border text-foreground text-xs h-10 w-20 text-center"
+                autoComplete="off"
               />
               <span className="text-xs text-muted-foreground">chapters</span>
             </div>
@@ -232,7 +238,7 @@ export default function BookEditor() {
               size="sm"
               onClick={() => generateOutlineMutation.mutate({ bookId, numChapters })}
               disabled={generateOutlineMutation.isPending}
-              className="btn-glow text-white text-xs w-full"
+              className="btn-glow text-white text-xs w-full min-h-[44px]"
             >
               {generateOutlineMutation.isPending ? (
                 <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Generating...</>
@@ -254,7 +260,7 @@ export default function BookEditor() {
               size="sm"
               onClick={() => initChaptersMutation.mutate({ bookId })}
               disabled={initChaptersMutation.isPending}
-              className="btn-glow text-white text-xs w-full mt-2"
+              className="btn-glow text-white text-xs w-full mt-2 min-h-[44px]"
             >
               {initChaptersMutation.isPending ? (
                 <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Starting...</>
@@ -269,12 +275,12 @@ export default function BookEditor() {
               key={chapter.id}
               onClick={() => {
                 setSelectedChapterId(chapter.id);
-                setMobileView("editor"); // switch to editor on mobile
+                setMobileView("editor");
               }}
-              className={`w-full text-left p-3 rounded-xl transition-all border ${
+              className={`w-full text-left p-3 rounded-xl transition-all border min-h-[52px] ${
                 selectedChapterId === chapter.id
                   ? "bg-primary/15 border-primary/30 text-primary"
-                  : "bg-transparent border-transparent hover:bg-muted/40 text-foreground"
+                  : "bg-transparent border-transparent hover:bg-muted/40 text-foreground active:bg-muted/60"
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
@@ -297,7 +303,7 @@ export default function BookEditor() {
             size="sm"
             onClick={() => coverImageMutation.mutate({ bookId })}
             disabled={coverImageMutation.isPending}
-            className="btn-glow text-white text-xs w-full"
+            className="btn-glow text-white text-xs w-full min-h-[44px]"
           >
             {coverImageMutation.isPending ? (
               <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Generating...</>
@@ -306,18 +312,23 @@ export default function BookEditor() {
             )}
           </Button>
           <div className="space-y-2">
+            {/* FIX: Add inputMode and enterKeyHint for mobile */}
             <Input
               placeholder="Custom illustration prompt..."
               value={imagePrompt}
               onChange={(e) => setImagePrompt(e.target.value)}
-              className="bg-input border-border text-foreground text-xs h-8"
+              className="bg-input border-border text-foreground text-xs h-10"
+              inputMode="text"
+              enterKeyHint="go"
+              autoComplete="off"
+              autoCorrect="off"
             />
             <Button
               size="sm"
               onClick={() => illustrationMutation.mutate({ bookId, prompt: imagePrompt })}
               disabled={illustrationMutation.isPending || !imagePrompt.trim()}
               variant="outline"
-              className="text-xs w-full border-border"
+              className="text-xs w-full border-border min-h-[44px]"
             >
               {illustrationMutation.isPending ? (
                 <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Generating...</>
@@ -344,10 +355,10 @@ export default function BookEditor() {
             <p>{completedChapters} of {chapters?.length || 0} chapters complete</p>
             <p>{totalWords.toLocaleString()} total words</p>
           </div>
-          <Button size="sm" onClick={() => handleExport("txt")} variant="outline" className="w-full text-xs border-border">
+          <Button size="sm" onClick={() => handleExport("txt")} variant="outline" className="w-full text-xs border-border min-h-[44px]">
             <Download className="w-3 h-3 mr-1" /> Export as .txt
           </Button>
-          <Button size="sm" onClick={() => handleExport("md")} variant="outline" className="w-full text-xs border-border">
+          <Button size="sm" onClick={() => handleExport("md")} variant="outline" className="w-full text-xs border-border min-h-[44px]">
             <Download className="w-3 h-3 mr-1" /> Export as .md
           </Button>
         </div>
@@ -362,9 +373,8 @@ export default function BookEditor() {
         <>
           {/* Chapter Header */}
           <div className="p-3 md:p-4 border-b border-border flex items-start gap-2 bg-card/30">
-            {/* Mobile back to list */}
             <button
-              className="md:hidden mt-0.5 text-muted-foreground hover:text-foreground flex-shrink-0"
+              className="md:hidden mt-0.5 text-muted-foreground hover:text-foreground flex-shrink-0 p-1"
               onClick={() => setMobileView("list")}
             >
               <ArrowLeft className="w-4 h-4" />
@@ -381,7 +391,7 @@ export default function BookEditor() {
                   size="sm"
                   onClick={() => handleGenerateChapter(selectedChapterId)}
                   disabled={generatingChapterId === selectedChapterId}
-                  className="btn-glow text-white text-xs gap-1 h-8 px-2.5"
+                  className="btn-glow text-white text-xs gap-1 h-9 px-3"
                 >
                   {generatingChapterId === selectedChapterId ? (
                     <><Loader2 className="w-3 h-3 animate-spin" /><span className="hidden sm:inline"> Writing...</span></>
@@ -393,17 +403,17 @@ export default function BookEditor() {
                 <>
                   {isEditingContent ? (
                     <>
-                      <Button size="sm" variant="ghost" onClick={() => setIsEditingContent(false)} className="text-xs h-8 px-2">Cancel</Button>
-                      <Button size="sm" onClick={handleSaveContent} disabled={updateChapterMutation.isPending} className="btn-glow text-white text-xs h-8 px-2.5">
+                      <Button size="sm" variant="ghost" onClick={() => setIsEditingContent(false)} className="text-xs h-9 px-2">Cancel</Button>
+                      <Button size="sm" onClick={handleSaveContent} disabled={updateChapterMutation.isPending} className="btn-glow text-white text-xs h-9 px-3">
                         {updateChapterMutation.isPending ? "Saving..." : "Save"}
                       </Button>
                     </>
                   ) : (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => setIsEditingContent(true)} className="text-xs border-border gap-1 h-8 px-2.5">
+                      <Button size="sm" variant="outline" onClick={() => setIsEditingContent(true)} className="text-xs border-border gap-1 h-9 px-3">
                         <Edit3 className="w-3 h-3" /><span className="hidden sm:inline"> Edit</span>
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleGenerateChapter(selectedChapterId)} disabled={generatingChapterId === selectedChapterId} className="text-xs gap-1 h-8 px-2 text-muted-foreground">
+                      <Button size="sm" variant="ghost" onClick={() => handleGenerateChapter(selectedChapterId)} disabled={generatingChapterId === selectedChapterId} className="text-xs gap-1 h-9 px-2 text-muted-foreground">
                         <RefreshCw className="w-3 h-3" />
                       </Button>
                     </>
@@ -422,7 +432,7 @@ export default function BookEditor() {
                 </div>
                 <div className="text-center">
                   <p className="text-foreground font-medium">Writing chapter...</p>
-                  <p className="text-muted-foreground text-sm mt-1">This may take 30–60 seconds</p>
+                  <p className="text-muted-foreground text-sm mt-1">This may take 30-60 seconds</p>
                 </div>
               </div>
             ) : selectedChapter.status === "pending" ? (
@@ -434,16 +444,21 @@ export default function BookEditor() {
                   <p className="text-foreground font-medium">Chapter not yet written</p>
                   <p className="text-muted-foreground text-sm mt-1">Tap "Generate" to write this chapter with AI</p>
                 </div>
-                <Button onClick={() => handleGenerateChapter(selectedChapterId)} className="btn-glow text-white gap-2">
+                <Button onClick={() => handleGenerateChapter(selectedChapterId)} className="btn-glow text-white gap-2 min-h-[44px]">
                   <Sparkles className="w-4 h-4" /> Generate Chapter
                 </Button>
               </div>
             ) : isEditingContent ? (
+              /* FIX: Add proper mobile attributes to editing textarea */
               <Textarea
                 value={editingContent}
                 onChange={(e) => setEditingContent(e.target.value)}
                 className="w-full h-full min-h-[60vh] bg-transparent border-none text-foreground text-sm leading-relaxed resize-none focus:ring-0 p-0"
                 placeholder="Write or paste chapter content here..."
+                inputMode="text"
+                autoComplete="off"
+                autoCorrect="on"
+                spellCheck={true}
               />
             ) : (
               <div className="prose prose-invert max-w-none">
@@ -469,9 +484,8 @@ export default function BookEditor() {
               ? "Your outline is ready. Click 'Start Writing' to create chapters."
               : "Start by generating an outline in the panel. The AI will create chapter titles and summaries for your book."}
           </p>
-          {/* On mobile, show a button to go back to list */}
           <Button
-            className="mt-4 md:hidden btn-glow text-white gap-2"
+            className="mt-4 md:hidden btn-glow text-white gap-2 min-h-[44px]"
             onClick={() => setMobileView("list")}
           >
             <List className="w-4 h-4" /> View Chapters
@@ -485,24 +499,23 @@ export default function BookEditor() {
     <AppLayout>
       {/* Book Header (mobile only) */}
       <div className="md:hidden flex items-center gap-2 px-4 py-3 border-b border-border bg-card/50">
-        <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground">
+        <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground p-1">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex-1 min-w-0">
           <h2 className="font-semibold text-foreground text-sm truncate">{book.title}</h2>
           <p className="text-xs text-muted-foreground">{completedChapters}/{chapters?.length || 0} chapters · {totalWords.toLocaleString()} words</p>
         </div>
-        {/* Toggle between list and editor on mobile */}
         <button
           onClick={() => setMobileView(mobileView === "list" ? "editor" : "list")}
-          className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg bg-muted/50"
+          className="text-muted-foreground hover:text-foreground p-2 rounded-lg bg-muted/50 min-w-[36px] min-h-[36px] flex items-center justify-center"
         >
           {mobileView === "list" ? <FileText className="w-4 h-4" /> : <List className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* ── Desktop: Side-by-side panels ── */}
-      <div className="hidden md:flex h-[calc(100vh-0px)] overflow-hidden">
+      {/* FIX: Desktop panels — use dvh with vh fallback */}
+      <div className="hidden md:flex h-screen overflow-hidden">
         {/* Left Panel */}
         <div className="w-72 border-r border-border bg-card/50 flex flex-col flex-shrink-0 overflow-hidden">
           <div className="p-4 border-b border-border flex-shrink-0">
@@ -524,8 +537,8 @@ export default function BookEditor() {
         <EditorPanel />
       </div>
 
-      {/* ── Mobile: Single panel view ── */}
-      <div className="md:hidden flex flex-col h-[calc(100vh-112px)] overflow-hidden">
+      {/* FIX: Mobile panels — use dynamic viewport height, not static calc */}
+      <div className="md:hidden flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 112px)' }}>
         {mobileView === "list" ? (
           <div className="flex flex-col flex-1 overflow-hidden bg-card/50">
             <ChapterListPanel />
