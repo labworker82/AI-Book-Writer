@@ -69,6 +69,7 @@ export const books = mysqlTable("books", {
   totalChapters: int("totalChapters").default(0),
   targetWordCount: int("targetWordCount").default(30000),
   suggestedChapters: int("suggestedChapters").default(15),
+  bookStyle: varchar("bookStyle", { length: 64 }),
   includePreface: boolean("includePreface").default(false),
   includeDedication: boolean("includeDedication").default(false),
   includeAcknowledgements: boolean("includeAcknowledgements").default(false),

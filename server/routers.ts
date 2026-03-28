@@ -149,6 +149,73 @@ export const appRouter = router({
         return getBookById(input.bookId, ctx.user.id);
       }),
 
+    suggestTitles: protectedProcedure
+      .input(z.object({
+        description: z.string().optional(),
+        genre: z.string().optional(),
+        tone: z.string().optional(),
+        bookStyle: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const settings = await getSettingsByUserId(ctx.user.id);
+        const apiKey = settings?.openrouterApiKey;
+        if (!apiKey) throw new Error("OpenRouter API key not configured. Please add it in Settings.");
+        const model = settings?.textModel || "anthropic/claude-3.5-sonnet";
+
+        const context = [
+          input.genre ? `Genre: ${input.genre}` : null,
+          input.tone ? `Tone: ${input.tone}` : null,
+          input.bookStyle ? `Book style: ${input.bookStyle}` : null,
+          input.description ? `Description: ${input.description}` : null,
+        ].filter(Boolean).join("\n");
+
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 512,
+            messages: [
+              {
+                role: "system",
+                content: "You are a book title specialist. Generate compelling, marketable book titles. Return ONLY a JSON array of 5 title strings, nothing else. Example: [\"Title One\", \"Title Two\", \"Title Three\", \"Title Four\", \"Title Five\"]",
+              },
+              {
+                role: "user",
+                content: `Generate 5 compelling book title options for a book with these details:\n${context}\n\nReturn ONLY a JSON array of 5 title strings.`,
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          throw new Error(`Title suggestion failed: ${response.status} - ${err}`);
+        }
+
+        const data = await response.json() as any;
+        const raw = data.choices?.[0]?.message?.content || "[]";
+
+        // Parse the JSON array from the response
+        let titles: string[] = [];
+        try {
+          const arrayMatch = raw.match(/\[[\s\S]*\]/);
+          if (arrayMatch) titles = JSON.parse(arrayMatch[0]);
+          else titles = JSON.parse(raw.trim());
+        } catch {
+          // Fallback: split by newlines and clean up
+          titles = raw.split("\n")
+            .map((l: string) => l.replace(/^[\d.\-*"\s]+|["\s]+$/g, "").trim())
+            .filter((l: string) => l.length > 3)
+            .slice(0, 5);
+        }
+
+        return { titles: titles.slice(0, 5) };
+      }),
+
     create: protectedProcedure
       .input(z.object({
         title: z.string().min(1),
@@ -160,6 +227,7 @@ export const appRouter = router({
         authorName: z.string().optional(),
         writingStyle: z.string().optional(),
         customKnowledge: z.string().optional(),
+        bookStyle: z.string().optional(),
         includePreface: z.boolean().optional(),
         includeDedication: z.boolean().optional(),
         includeAcknowledgements: z.boolean().optional(),
@@ -184,6 +252,7 @@ export const appRouter = router({
         authorName: z.string().optional(),
         writingStyle: z.string().optional(),
         customKnowledge: z.string().optional(),
+        bookStyle: z.string().optional(),
         outline: z.any().optional(),
         premise: z.string().optional(),
         themes: z.string().optional(),
