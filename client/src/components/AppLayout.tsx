@@ -63,18 +63,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
       </div>
 
-      {/* API Key Warning — provider-aware */}
-      {settings && (
-        (settings.apiProvider === "openrouter" && !settings.hasOpenRouterKey) ||
-        (settings.apiProvider !== "openrouter" && !settings.hasApiKey)
-      ) && (
+      {/* API Key Warning — OpenRouter key is always required for writing */}
+      {settings && !settings.hasOpenRouterKey && (
         <div className="mx-3 mt-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs text-yellow-400 font-medium">
-                {settings?.apiProvider === "openrouter" ? "OpenRouter Key Required" : "OpenAI Key Required"}
-              </p>
+              <p className="text-xs text-yellow-400 font-medium">OpenRouter Key Required</p>
+              <p className="text-xs text-yellow-300/70 mt-0.5">Needed for book writing</p>
               <button
                 onClick={() => navigate("/settings")}
                 className="text-xs text-yellow-300 underline mt-0.5"

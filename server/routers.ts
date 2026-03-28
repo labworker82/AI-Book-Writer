@@ -109,9 +109,9 @@ export const appRouter = router({
       if (!settings) return {
         hasApiKey: false,
         hasOpenRouterKey: false,
-        apiProvider: "openai",
-        textModel: "gpt-4o",
-        imageModel: "gpt-image-1",
+        apiProvider: "openrouter",
+        textModel: "anthropic/claude-3.5-sonnet",
+        imageModel: "dall-e-3",
         openaiApiKey: null,
         openrouterApiKey: null,
       };
@@ -255,18 +255,13 @@ export const appRouter = router({
         if (!book) throw new Error("Book not found");
         const settings = await getSettingsByUserId(ctx.user.id);
 
-        const provider = settings?.apiProvider || "openai";
-        const apiKey = provider === "openrouter"
-          ? settings?.openrouterApiKey
-          : settings?.openaiApiKey;
-
+        // Text generation ALWAYS uses OpenRouter
+        const apiKey = settings?.openrouterApiKey;
         if (!apiKey) {
-          throw new Error(
-            provider === "openrouter"
-              ? "OpenRouter API key not configured. Please go to Settings."
-              : "OpenAI API key not configured. Please go to Settings."
-          );
+          throw new Error("OpenRouter API key not configured. Please go to Settings and add your OpenRouter key.");
         }
+
+        const model = settings?.textModel || "anthropic/claude-3.5-sonnet";
 
         // Use book's suggestedChapters if numChapters not explicitly provided
         const chapterCount = input.numChapters > 0
@@ -274,7 +269,7 @@ export const appRouter = router({
           : (book.suggestedChapters || 15);
 
         const outline = await generateBookContent.generateOutline(
-          book, chapterCount, apiKey, settings?.textModel ?? "gpt-4o", provider
+          book, chapterCount, apiKey, model, "openrouter"
         );
         await updateBook(input.bookId, ctx.user.id, { outline, totalChapters: outline.length });
         return { outline };
@@ -289,12 +284,10 @@ export const appRouter = router({
         if (!chapter) throw new Error("Chapter not found");
         const settings = await getSettingsByUserId(ctx.user.id);
 
-        const provider = settings?.apiProvider || "openai";
-        const apiKey = provider === "openrouter"
-          ? settings?.openrouterApiKey
-          : settings?.openaiApiKey;
-
-        if (!apiKey) throw new Error("API key not configured. Please go to Settings.");
+        // Text generation ALWAYS uses OpenRouter
+        const apiKey = settings?.openrouterApiKey;
+        if (!apiKey) throw new Error("OpenRouter API key not configured. Please go to Settings.");
+        const model = settings?.textModel || "anthropic/claude-3.5-sonnet";
 
         const allChapters = await getChaptersByBookId(input.bookId);
         const previousChapters = allChapters
@@ -305,11 +298,11 @@ export const appRouter = router({
 
         try {
           const content = await generateBookContent.generateChapter(
-            book, chapter, previousChapters, apiKey, settings?.textModel ?? "gpt-4o", provider
+            book, chapter, previousChapters, apiKey, model, "openrouter"
           );
           const wordCount = content.split(/\s+/).filter(Boolean).length;
           const summary = await generateBookContent.generateSummary(
-            content, apiKey, settings?.textModel ?? "gpt-4o", provider
+            content, apiKey, model, "openrouter"
           );
 
           await updateChapter(input.chapterId, ctx.user.id, { content, summary, wordCount, status: "complete" });

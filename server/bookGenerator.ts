@@ -1,30 +1,41 @@
 /**
  * AI Book Generation Engine
- * - Supports OpenAI and OpenRouter providers
- * - Uses max_completion_tokens for all modern OpenAI models
- * - Never sets temperature for reasoning models (o1/o3/o4 series)
- * - Targets per-chapter word count based on book's targetWordCount + chapter count
+ * - Text generation: OpenRouter (any model the user selects)
+ * - Image generation: OpenAI ONLY (handled in routers.ts, not here)
+ * - response_format: json_object is applied for all models that support it
+ * - max_tokens used for OpenRouter; max_completion_tokens for modern OpenAI models
+ * - temperature is never set (works universally across all models/providers)
  * - Context-aware chaining: each chapter receives full outline + prior summaries
  */
 
 import type { Book, Chapter, ChapterOutline } from "../drizzle/schema";
 
-// Models that use max_completion_tokens instead of max_tokens
-const MODERN_MODELS = [
+// OpenAI models that use max_completion_tokens instead of max_tokens
+const OPENAI_MODERN_MODELS = [
   "o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini", "o4",
   "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
   "gpt-5", "gpt-5.4",
 ];
 
-// O-series reasoning models: temperature must NOT be set (only default=1 supported)
-const REASONING_MODELS = ["o1", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini", "o4"];
+// Models that do NOT support response_format (OpenAI reasoning series + some OpenRouter models)
+// For OpenRouter, we check by model name prefix
+const NO_JSON_MODE_PREFIXES = [
+  "o1", "o3", "o4",                           // OpenAI reasoning models
+  "meta-llama/",                               // Llama models via OpenRouter
+  "mistralai/mistral-7b",                      // Smaller Mistral models
+  "nousresearch/",                             // Nous Research models
+  "huggingfaceh4/",                            // HuggingFace models
+];
 
-function isModernModel(model: string): boolean {
-  return MODERN_MODELS.some((m) => model === m || model.startsWith(m + "-") || model.startsWith(m + "."));
+function supportsJsonMode(model: string): boolean {
+  const lower = model.toLowerCase();
+  return !NO_JSON_MODE_PREFIXES.some(prefix => lower.startsWith(prefix.toLowerCase()));
 }
 
-function isReasoningModel(model: string): boolean {
-  return REASONING_MODELS.some((m) => model === m || model.startsWith(m + "-") || model.startsWith(m + "."));
+function isModernOpenAIModel(model: string): boolean {
+  return OPENAI_MODERN_MODELS.some(
+    (m) => model === m || model.startsWith(m + "-") || model.startsWith(m + ".")
+  );
 }
 
 function getApiUrl(provider: string): string {
@@ -35,13 +46,11 @@ function getApiUrl(provider: string): string {
 
 /**
  * Calculate the target words per chapter based on book settings.
- * Distributes the total word count evenly across all chapters.
  */
 function getTargetWordsPerChapter(book: Book, totalChapters: number): number {
   const totalTarget = book.targetWordCount || 30000;
   const chapters = totalChapters || book.totalChapters || 15;
   const perChapter = Math.round(totalTarget / Math.max(chapters, 1));
-  // Clamp between 800 and 5000 words per chapter
   return Math.min(5000, Math.max(800, perChapter));
 }
 
@@ -50,7 +59,7 @@ function getTargetWordsPerChapter(book: Book, totalChapters: number): number {
  * ~1.35 tokens per word is a safe estimate for prose.
  */
 function wordsToTokens(words: number): number {
-  return Math.ceil(words * 1.35) + 512; // +512 for formatting overhead
+  return Math.ceil(words * 1.35) + 512;
 }
 
 async function callAI(
@@ -58,17 +67,17 @@ async function callAI(
   model: string,
   messages: { role: string; content: string }[],
   maxTokens = 4096,
-  provider = "openai",
-  responseFormat?: { type: "json_object" | "text" }
+  provider = "openrouter",
+  useJsonMode = false
 ): Promise<string> {
   const url = getApiUrl(provider);
 
-  // OpenRouter ALWAYS uses max_tokens (regardless of model).
+  // OpenRouter ALWAYS uses max_tokens.
   // OpenAI modern models use max_completion_tokens; older ones use max_tokens.
   const tokenParam =
     provider === "openrouter"
       ? { max_tokens: maxTokens }
-      : isModernModel(model)
+      : isModernOpenAIModel(model)
         ? { max_completion_tokens: maxTokens }
         : { max_tokens: maxTokens };
 
@@ -88,16 +97,18 @@ async function callAI(
     ...tokenParam,
   };
 
-  // Add response_format if specified (forces JSON output, prevents null content)
-  // Only add for non-reasoning models (o1/o3/o4 don't support response_format)
-  if (responseFormat && !isReasoningModel(model)) {
-    body.response_format = responseFormat;
+  // Apply response_format: json_object when:
+  // 1. The caller requests JSON mode (useJsonMode = true)
+  // 2. The model supports it (not o1/o3/o4 reasoning series, not Llama, etc.)
+  if (useJsonMode && supportsJsonMode(model)) {
+    body.response_format = { type: "json_object" };
   }
 
   // NOTE: We intentionally do NOT set temperature.
   // OpenAI's newer models (gpt-5, o1, o3, o4-mini, etc.) reject custom temperature values.
-  // Omitting temperature entirely uses each model's default, which works universally.
   // OpenRouter also works fine without an explicit temperature.
+
+  console.log(`[callAI] provider=${provider} model=${model} jsonMode=${useJsonMode && supportsJsonMode(model)} maxTokens=${maxTokens}`);
 
   const response = await fetch(url, {
     method: "POST",
@@ -107,25 +118,22 @@ async function callAI(
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+    console.error(`[callAI] API error ${response.status}:`, error.slice(0, 500));
+    throw new Error(`${provider === "openrouter" ? "OpenRouter" : "OpenAI"} API error: ${response.status} - ${error}`);
   }
 
   const data = (await response.json()) as any;
 
-  // Handle multiple OpenAI response shapes (GPT-5, Responses API, standard chat completions)
-  // Shape 1: Standard chat completions - choices[0].message.content
+  // Handle multiple response shapes
   const choice = data.choices?.[0];
   if (choice) {
     const msg = choice.message;
-    // Check for refusal first
     if (msg?.refusal) {
       throw new Error(`Model refused the request: ${msg.refusal}`);
     }
-    // Standard content field (string)
     if (typeof msg?.content === "string" && msg.content.trim()) {
       return msg.content;
     }
-    // Content as array (multimodal format)
     if (Array.isArray(msg?.content)) {
       const textParts = msg.content
         .filter((p: any) => p.type === "text")
@@ -135,19 +143,18 @@ async function callAI(
     }
   }
 
-  // Shape 2: Responses API style (output_text at top level)
+  // Responses API style (output_text at top level)
   if (typeof data.output_text === "string" && data.output_text.trim()) {
     return data.output_text;
   }
 
-  // Shape 3: Responses API nested output array
+  // Responses API nested output array
   const outputText = data.output?.[0]?.content?.[0]?.text;
   if (typeof outputText === "string" && outputText.trim()) {
     return outputText;
   }
 
-  // Log full response for debugging if we got nothing
-  console.error("[callAI] Unexpected response shape. Keys:", Object.keys(data), "Choice:", JSON.stringify(choice?.message || {}).slice(0, 300));
+  console.error("[callAI] Unexpected response shape. Full response:", JSON.stringify(data).slice(0, 800));
   return "";
 }
 
@@ -204,23 +211,17 @@ function parseOutlineJSON(raw: string): ChapterOutline[] | null {
 export const generateBookContent = {
   /**
    * Generate a full chapter outline for the book.
-   * Uses suggestedChapters from the book record if available.
    */
   async generateOutline(
     book: Book,
     numChapters: number,
     apiKey: string,
     model: string,
-    provider = "openai"
+    provider = "openrouter"
   ): Promise<ChapterOutline[]> {
-    // Use the book's suggestedChapters if caller passes 0 or default
     const chapterCount = numChapters > 0 ? numChapters : (book.suggestedChapters || 15);
     const targetWords = book.targetWordCount || 30000;
     const wordsPerChapter = getTargetWordsPerChapter(book, chapterCount);
-
-    // Force JSON output mode where supported (gpt-4o, gpt-4.1, gpt-4-turbo, etc.)
-    // This prevents markdown wrapping and ensures parseable output
-    const supportsJsonMode = !model.startsWith("o1") && !model.startsWith("o3") && !model.startsWith("o4");
 
     const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
@@ -256,8 +257,6 @@ Make the chapter titles compelling and the summaries specific and detailed. Each
 
 Return ONLY the JSON array, nothing else.`;
 
-    // Use json_object response format to prevent null content from GPT-5/GPT-4o
-    // This is the most reliable way to get parseable JSON from modern OpenAI models
     const raw = await callAI(
       apiKey, model,
       [
@@ -266,22 +265,23 @@ Return ONLY the JSON array, nothing else.`;
       ],
       2048,
       provider,
-      provider === "openai" ? { type: "json_object" } : undefined
+      true  // useJsonMode = true for outline (we need parseable JSON)
     );
 
-    // Robust JSON parser — handles all response formats from gpt-5, gpt-4o, etc.
     const parsed = parseOutlineJSON(raw);
     if (!parsed) {
-      // Log the raw response for debugging
-      console.error("[bookGenerator] Failed to parse outline. Raw response:", raw.slice(0, 500));
-      throw new Error("Failed to parse outline from AI response. The model returned unexpected content.");
+      console.error("[bookGenerator] Failed to parse outline. Raw response (first 800 chars):", raw.slice(0, 800));
+      throw new Error(
+        `Failed to parse outline from AI response. ` +
+        `Model returned: "${raw.slice(0, 200)}...". ` +
+        `Please try a different model or check your API key.`
+      );
     }
     return parsed;
   },
 
   /**
    * Generate a full chapter with context continuity.
-   * Targets the correct word count based on book length settings.
    */
   async generateChapter(
     book: Book,
@@ -289,10 +289,12 @@ Return ONLY the JSON array, nothing else.`;
     previousChapters: { title: string; summary: string; content: string }[],
     apiKey: string,
     model: string,
-    provider = "openai"
+    provider = "openrouter"
   ): Promise<string> {
     const outline = (book.outline as ChapterOutline[]) || [];
-    const chapterOutlineItem = outline.find((o) => o.chapterNumber === chapter.chapterNumber);
+    const chapterOutlineItem = outline.find(
+      (o) => o.chapterNumber === chapter.chapterNumber
+    );
     const totalChapters = outline.filter(c => c.type === "chapter").length || book.totalChapters || 15;
     const targetWordsPerChapter = getTargetWordsPerChapter(book, totalChapters);
     const maxTokens = wordsToTokens(targetWordsPerChapter);
@@ -341,7 +343,8 @@ Write the complete, full-length chapter content now. Be thorough, detailed, and 
         { role: "user", content: userPrompt },
       ],
       maxTokens,
-      provider
+      provider,
+      false  // useJsonMode = false for chapter content (we want prose, not JSON)
     );
 
     return content.trim();
@@ -349,13 +352,12 @@ Write the complete, full-length chapter content now. Be thorough, detailed, and 
 
   /**
    * Generate a brief summary of a chapter for context chaining.
-   * Always uses a fast/cheap model to minimize costs.
    */
   async generateSummary(
     chapterContent: string,
     apiKey: string,
     model: string,
-    provider = "openai"
+    provider = "openrouter"
   ): Promise<string> {
     const prompt = `Summarize the following chapter content in 3-5 sentences, capturing the key points, arguments, and narrative developments. This summary will be used to maintain continuity in subsequent chapters.
 
@@ -364,15 +366,13 @@ ${chapterContent.slice(0, 3000)}${chapterContent.length > 3000 ? "..." : ""}
 
 Return only the summary, no labels or prefixes.`;
 
-    // Always use a fast model for summaries to save costs
-    const summaryModel = provider === "openrouter" ? model : "gpt-4o-mini";
-
     const summary = await callAI(
       apiKey,
-      summaryModel,
+      model,
       [{ role: "user", content: prompt }],
       512,
-      provider
+      provider,
+      false
     );
 
     return summary.trim();
