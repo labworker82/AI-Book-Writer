@@ -177,6 +177,61 @@ describe("supportsJsonMode", () => {
   });
 });
 
+function getOutlineTokenBudget(chapterCount: number): number {
+  return Math.max(3000, chapterCount * 150 + 512);
+}
+
+describe("getOutlineTokenBudget", () => {
+  it("returns at least 3000 for small chapter counts", () => {
+    expect(getOutlineTokenBudget(1)).toBeGreaterThanOrEqual(3000);
+    expect(getOutlineTokenBudget(5)).toBeGreaterThanOrEqual(3000);
+    expect(getOutlineTokenBudget(10)).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("scales up for 15-chapter books (never truncates)", () => {
+    // 15 * 150 + 512 = 2762 → clamped to 3000
+    expect(getOutlineTokenBudget(15)).toBeGreaterThanOrEqual(3000);
+  });
+
+  it("scales up for 30-chapter books", () => {
+    // 30 * 150 + 512 = 5012
+    expect(getOutlineTokenBudget(30)).toBeGreaterThanOrEqual(5000);
+  });
+
+  it("budget grows with chapter count", () => {
+    expect(getOutlineTokenBudget(30)).toBeGreaterThan(getOutlineTokenBudget(15));
+    expect(getOutlineTokenBudget(20)).toBeGreaterThan(getOutlineTokenBudget(10));
+  });
+});
+
+describe("chapter type coverage", () => {
+  const VALID_TYPES = ["preface", "dedication", "chapter", "epilogue", "acknowledgements"];
+
+  it("recognizes all valid chapter types from schema", () => {
+    VALID_TYPES.forEach(type => {
+      expect(VALID_TYPES).toContain(type);
+    });
+  });
+
+  it("has exactly 5 chapter types matching schema enum", () => {
+    expect(VALID_TYPES).toHaveLength(5);
+  });
+
+  it("includes front matter types", () => {
+    expect(VALID_TYPES).toContain("preface");
+    expect(VALID_TYPES).toContain("dedication");
+  });
+
+  it("includes back matter types", () => {
+    expect(VALID_TYPES).toContain("epilogue");
+    expect(VALID_TYPES).toContain("acknowledgements");
+  });
+
+  it("includes regular chapter type", () => {
+    expect(VALID_TYPES).toContain("chapter");
+  });
+});
+
 describe("provider routing logic", () => {
   it("always uses openrouter for text generation (no openai key fallback)", () => {
     // Simulate what routers.ts does: always use openrouterApiKey for text

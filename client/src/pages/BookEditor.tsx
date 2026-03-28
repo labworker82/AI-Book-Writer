@@ -1,11 +1,12 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 import {
   ArrowLeft, Sparkles, BookOpen, Image, Download, Edit3, Check, X,
-  RefreshCw, ChevronUp, ChevronDown, FileText, Wand2, Loader2, PenLine, ImageIcon, List
+  RefreshCw, ChevronUp, ChevronDown, FileText, Wand2, Loader2, PenLine,
+  ImageIcon, List, Play, Mic, Palette, Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +29,14 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   error: <X className="w-3 h-3 text-red-400" />,
 };
 
+const TYPE_LABEL: Record<string, string> = {
+  preface: "Preface",
+  dedication: "Dedication",
+  chapter: "Chapter",
+  epilogue: "Epilogue",
+  acknowledgements: "Acknowledgements",
+};
+
 export default function BookEditor() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
@@ -42,6 +51,11 @@ export default function BookEditor() {
   const [generatingChapterId, setGeneratingChapterId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("chapters");
   const [mobileView, setMobileView] = useState<"list" | "editor">("list");
+
+  // Generate All state
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [generateAllProgress, setGenerateAllProgress] = useState({ done: 0, total: 0 });
+  const generateAllCancelRef = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) navigate("/login");
@@ -77,7 +91,7 @@ export default function BookEditor() {
 
   const generateOutlineMutation = trpc.generate.outline.useMutation({
     onSuccess: (data) => {
-      toast.success(`Outline generated with ${data.outline.length} chapters!`);
+      toast.success(`Outline generated with ${data.outline.length} sections!`);
       utils.books.get.invalidate({ bookId });
     },
     onError: (err) => toast.error("Outline generation failed: " + err.message),
@@ -85,7 +99,7 @@ export default function BookEditor() {
 
   const initChaptersMutation = trpc.generate.initChapters.useMutation({
     onSuccess: () => {
-      toast.success("Chapters created! Select one to start writing.");
+      toast.success("Chapters created! You can now generate them one by one or all at once.");
       refetchChapters();
     },
     onError: (err) => toast.error("Failed to initialize chapters: " + err.message),
@@ -139,6 +153,55 @@ export default function BookEditor() {
     }
   }, [bookId, generateChapterMutation]);
 
+  /**
+   * Generate all pending/error chapters sequentially.
+   * Skips already-complete chapters. Can be cancelled.
+   */
+  const handleGenerateAll = useCallback(async () => {
+    if (!chapters) return;
+    const pending = chapters.filter(c => c.status === "pending" || c.status === "error");
+    if (pending.length === 0) {
+      toast.info("All chapters are already complete!");
+      return;
+    }
+
+    setIsGeneratingAll(true);
+    generateAllCancelRef.current = false;
+    setGenerateAllProgress({ done: 0, total: pending.length });
+
+    let done = 0;
+    for (const chapter of pending) {
+      if (generateAllCancelRef.current) {
+        toast.info(`Generation paused after ${done} chapters.`);
+        break;
+      }
+      setGeneratingChapterId(chapter.id);
+      try {
+        await generateChapterMutation.mutateAsync({ bookId, chapterId: chapter.id });
+        done++;
+        setGenerateAllProgress({ done, total: pending.length });
+        await refetchChapters();
+      } catch (err) {
+        toast.error(`Failed on "${chapter.title}": ${err instanceof Error ? err.message : String(err)}`);
+        // Continue to next chapter even if one fails
+        done++;
+        setGenerateAllProgress({ done, total: pending.length });
+      }
+    }
+
+    setGeneratingChapterId(null);
+    setIsGeneratingAll(false);
+    generateAllCancelRef.current = false;
+
+    if (!generateAllCancelRef.current) {
+      toast.success(`Done! Generated ${done} chapter${done !== 1 ? "s" : ""}.`);
+    }
+  }, [chapters, bookId, generateChapterMutation, refetchChapters]);
+
+  const handleCancelGenerateAll = () => {
+    generateAllCancelRef.current = true;
+  };
+
   const handleSaveContent = () => {
     if (!selectedChapterId) return;
     updateChapterMutation.mutate({ chapterId: selectedChapterId, content: editingContent });
@@ -174,6 +237,7 @@ export default function BookEditor() {
   const hasChapters = (chapters?.length || 0) > 0;
   const completedChapters = chapters?.filter((c) => c.status === "complete").length || 0;
   const totalWords = book?.wordCount || 0;
+  const pendingChapters = chapters?.filter(c => c.status === "pending" || c.status === "error").length || 0;
 
   if (bookLoading) {
     return (
@@ -196,6 +260,59 @@ export default function BookEditor() {
     );
   }
 
+  // ── Voice/Tone Summary Panel ──
+  const VoicePanel = () => {
+    const tone = book.tone;
+    const style = book.writingStyle;
+    if (!tone && !style) return null;
+
+    return (
+      <div className="mx-3 mb-2 p-2.5 rounded-lg bg-primary/5 border border-primary/15">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Mic className="w-3 h-3 text-primary" />
+          <span className="text-xs font-medium text-primary">Voice & Tone</span>
+        </div>
+        {tone && (
+          <p className="text-xs text-muted-foreground capitalize mb-0.5">
+            <span className="text-foreground font-medium">Tone:</span> {tone}
+          </p>
+        )}
+        {style && (
+          <p className="text-xs text-muted-foreground line-clamp-3">
+            <span className="text-foreground font-medium">Style:</span> {style}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  // ── Generate All Progress Banner ──
+  const GenerateAllBanner = () => {
+    if (!isGeneratingAll) return null;
+    const { done, total } = generateAllProgress;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return (
+      <div className="mx-3 mb-2 p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-blue-400">Generating all chapters...</span>
+          <button
+            onClick={handleCancelGenerateAll}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Pause
+          </button>
+        </div>
+        <div className="w-full bg-muted rounded-full h-1.5">
+          <div
+            className="bg-blue-400 h-1.5 rounded-full transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">{done} of {total} chapters written</p>
+      </div>
+    );
+  };
+
   // ── Chapter List Panel ──
   const ChapterListPanel = () => (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
@@ -217,7 +334,6 @@ export default function BookEditor() {
               </div>
             )}
             <div className="flex items-center gap-2 mb-3 justify-center">
-              {/* FIX: Use type="text" with inputMode="numeric" for proper mobile keyboard */}
               <Input
                 type="text"
                 inputMode="numeric"
@@ -252,6 +368,9 @@ export default function BookEditor() {
             <p className="text-xs text-muted-foreground px-1 mb-2">Outline ready! Review below, then start writing.</p>
             {outline.map((item) => (
               <div key={item.chapterNumber} className="p-2 rounded-lg bg-muted/30 border border-border">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-xs text-primary/60 capitalize">{TYPE_LABEL[item.type] || item.type}</span>
+                </div>
                 <p className="text-xs font-medium text-foreground line-clamp-1">{item.title}</p>
                 <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{item.summary}</p>
               </div>
@@ -260,7 +379,7 @@ export default function BookEditor() {
               size="sm"
               onClick={() => initChaptersMutation.mutate({ bookId })}
               disabled={initChaptersMutation.isPending}
-              className="btn-glow text-white text-xs w-full mt-2 min-h-[44px]"
+              className="btn-glow text-white text-xs w-full min-h-[44px]"
             >
               {initChaptersMutation.isPending ? (
                 <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Starting...</>
@@ -270,29 +389,62 @@ export default function BookEditor() {
             </Button>
           </div>
         ) : (
-          chapters?.map((chapter) => (
-            <button
-              key={chapter.id}
-              onClick={() => {
-                setSelectedChapterId(chapter.id);
-                setMobileView("editor");
-              }}
-              className={`w-full text-left p-3 rounded-xl transition-all border min-h-[52px] ${
-                selectedChapterId === chapter.id
-                  ? "bg-primary/15 border-primary/30 text-primary"
-                  : "bg-transparent border-transparent hover:bg-muted/40 text-foreground active:bg-muted/60"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                {STATUS_ICON[chapter.status]}
-                <span className="text-xs font-medium line-clamp-1">{chapter.title}</span>
+          <>
+            {/* Voice panel */}
+            <VoicePanel />
+
+            {/* Generate All banner */}
+            <GenerateAllBanner />
+
+            {/* Generate All / Stop button */}
+            {pendingChapters > 0 && (
+              <div className="pb-1">
+                {isGeneratingAll ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCancelGenerateAll}
+                    className="w-full text-xs border-border min-h-[40px]"
+                  >
+                    <X className="w-3 h-3 mr-1" /> Pause Generation
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={handleGenerateAll}
+                    disabled={isGeneratingAll}
+                    className="btn-glow text-white text-xs w-full min-h-[40px]"
+                  >
+                    <Play className="w-3 h-3 mr-1" /> Generate All ({pendingChapters} remaining)
+                  </Button>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="capitalize">{chapter.type}</span>
-                {chapter.wordCount ? <span>· {chapter.wordCount.toLocaleString()}w</span> : null}
-              </div>
-            </button>
-          ))
+            )}
+
+            {chapters?.map((chapter) => (
+              <button
+                key={chapter.id}
+                onClick={() => {
+                  setSelectedChapterId(chapter.id);
+                  setMobileView("editor");
+                }}
+                className={`w-full text-left p-3 rounded-xl transition-all border min-h-[52px] ${
+                  selectedChapterId === chapter.id
+                    ? "bg-primary/15 border-primary/30 text-primary"
+                    : "bg-transparent border-transparent hover:bg-muted/40 text-foreground active:bg-muted/60"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  {STATUS_ICON[chapter.status]}
+                  <span className="text-xs font-medium line-clamp-1">{chapter.title}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="capitalize">{TYPE_LABEL[chapter.type] || chapter.type}</span>
+                  {chapter.wordCount ? <span>· {chapter.wordCount.toLocaleString()}w</span> : null}
+                </div>
+              </button>
+            ))}
+          </>
         )}
       </TabsContent>
 
@@ -312,7 +464,6 @@ export default function BookEditor() {
             )}
           </Button>
           <div className="space-y-2">
-            {/* FIX: Add inputMode and enterKeyHint for mobile */}
             <Input
               placeholder="Custom illustration prompt..."
               value={imagePrompt}
@@ -382,7 +533,7 @@ export default function BookEditor() {
             <div className="flex-1 min-w-0">
               <h2 className="font-semibold text-foreground text-sm md:text-base line-clamp-1">{selectedChapter.title}</h2>
               <p className="text-xs text-muted-foreground capitalize">
-                {selectedChapter.type} · {selectedChapter.wordCount?.toLocaleString() || 0} words
+                {TYPE_LABEL[selectedChapter.type] || selectedChapter.type} · {selectedChapter.wordCount?.toLocaleString() || 0} words
               </p>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -390,7 +541,7 @@ export default function BookEditor() {
                 <Button
                   size="sm"
                   onClick={() => handleGenerateChapter(selectedChapterId)}
-                  disabled={generatingChapterId === selectedChapterId}
+                  disabled={generatingChapterId === selectedChapterId || isGeneratingAll}
                   className="btn-glow text-white text-xs gap-1 h-9 px-3"
                 >
                   {generatingChapterId === selectedChapterId ? (
@@ -413,7 +564,7 @@ export default function BookEditor() {
                       <Button size="sm" variant="outline" onClick={() => setIsEditingContent(true)} className="text-xs border-border gap-1 h-9 px-3">
                         <Edit3 className="w-3 h-3" /><span className="hidden sm:inline"> Edit</span>
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleGenerateChapter(selectedChapterId)} disabled={generatingChapterId === selectedChapterId} className="text-xs gap-1 h-9 px-2 text-muted-foreground">
+                      <Button size="sm" variant="ghost" onClick={() => handleGenerateChapter(selectedChapterId)} disabled={generatingChapterId === selectedChapterId || isGeneratingAll} className="text-xs gap-1 h-9 px-2 text-muted-foreground">
                         <RefreshCw className="w-3 h-3" />
                       </Button>
                     </>
@@ -423,6 +574,19 @@ export default function BookEditor() {
             </div>
           </div>
 
+          {/* Chapter type hint for special sections */}
+          {selectedChapter.type !== "chapter" && selectedChapter.status === "pending" && (
+            <div className="mx-4 mt-3 p-2.5 rounded-lg bg-primary/5 border border-primary/15 flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">
+                {selectedChapter.type === "preface" && "This is your Preface — the AI will write it as a personal letter to the reader, explaining why you wrote the book."}
+                {selectedChapter.type === "dedication" && "This is your Dedication — a short, heartfelt message to the people who matter most."}
+                {selectedChapter.type === "epilogue" && "This is your Epilogue — a closing reflection that gives the reader a satisfying ending."}
+                {selectedChapter.type === "acknowledgements" && "This is your Acknowledgements section — the AI will write it as a warm thank-you to contributors and supporters."}
+              </p>
+            </div>
+          )}
+
           {/* Chapter Content */}
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
             {generatingChapterId === selectedChapterId ? (
@@ -431,8 +595,10 @@ export default function BookEditor() {
                   <Loader2 className="w-6 h-6 text-primary animate-spin" />
                 </div>
                 <div className="text-center">
-                  <p className="text-foreground font-medium">Writing chapter...</p>
-                  <p className="text-muted-foreground text-sm mt-1">This may take 30-60 seconds</p>
+                  <p className="text-foreground font-medium">
+                    Writing {TYPE_LABEL[selectedChapter.type] || "chapter"}...
+                  </p>
+                  <p className="text-muted-foreground text-sm mt-1">This may take 30-90 seconds</p>
                 </div>
               </div>
             ) : selectedChapter.status === "pending" ? (
@@ -441,15 +607,16 @@ export default function BookEditor() {
                   <FileText className="w-6 h-6 text-muted-foreground" />
                 </div>
                 <div>
-                  <p className="text-foreground font-medium">Chapter not yet written</p>
-                  <p className="text-muted-foreground text-sm mt-1">Tap "Generate" to write this chapter with AI</p>
+                  <p className="text-foreground font-medium">Not yet written</p>
+                  <p className="text-muted-foreground text-sm mt-1">
+                    Tap "Generate" to write this {TYPE_LABEL[selectedChapter.type]?.toLowerCase() || "chapter"} with AI
+                  </p>
                 </div>
-                <Button onClick={() => handleGenerateChapter(selectedChapterId)} className="btn-glow text-white gap-2 min-h-[44px]">
-                  <Sparkles className="w-4 h-4" /> Generate Chapter
+                <Button onClick={() => handleGenerateChapter(selectedChapterId)} disabled={isGeneratingAll} className="btn-glow text-white gap-2 min-h-[44px]">
+                  <Sparkles className="w-4 h-4" /> Generate {TYPE_LABEL[selectedChapter.type] || "Chapter"}
                 </Button>
               </div>
             ) : isEditingContent ? (
-              /* FIX: Add proper mobile attributes to editing textarea */
               <Textarea
                 value={editingContent}
                 onChange={(e) => setEditingContent(e.target.value)}
@@ -514,7 +681,7 @@ export default function BookEditor() {
         </button>
       </div>
 
-      {/* FIX: Desktop panels — use dvh with vh fallback */}
+      {/* Desktop panels */}
       <div className="hidden md:flex h-screen overflow-hidden">
         {/* Left Panel */}
         <div className="w-72 border-r border-border bg-card/50 flex flex-col flex-shrink-0 overflow-hidden">
@@ -537,7 +704,7 @@ export default function BookEditor() {
         <EditorPanel />
       </div>
 
-      {/* FIX: Mobile panels — use dynamic viewport height, not static calc */}
+      {/* Mobile panels */}
       <div className="md:hidden flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 112px)' }}>
         {mobileView === "list" ? (
           <div className="flex flex-col flex-1 overflow-hidden bg-card/50">

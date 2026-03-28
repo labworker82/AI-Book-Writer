@@ -6,6 +6,7 @@
  * - max_tokens used for OpenRouter; max_completion_tokens for modern OpenAI models
  * - temperature is never set (works universally across all models/providers)
  * - Context-aware chaining: each chapter receives full outline + prior summaries
+ * - Type-aware prompts: preface/intro/epilogue/acknowledgements get dedicated instructions
  */
 
 import type { Book, Chapter, ChapterOutline } from "../drizzle/schema";
@@ -18,13 +19,12 @@ const OPENAI_MODERN_MODELS = [
 ];
 
 // Models that do NOT support response_format (OpenAI reasoning series + some OpenRouter models)
-// For OpenRouter, we check by model name prefix
 const NO_JSON_MODE_PREFIXES = [
-  "o1", "o3", "o4",                           // OpenAI reasoning models
-  "meta-llama/",                               // Llama models via OpenRouter
-  "mistralai/mistral-7b",                      // Smaller Mistral models
-  "nousresearch/",                             // Nous Research models
-  "huggingfaceh4/",                            // HuggingFace models
+  "o1", "o3", "o4",
+  "meta-llama/",
+  "mistralai/mistral-7b",
+  "nousresearch/",
+  "huggingfaceh4/",
 ];
 
 function supportsJsonMode(model: string): boolean {
@@ -62,6 +62,16 @@ function wordsToTokens(words: number): number {
   return Math.ceil(words * 1.35) + 512;
 }
 
+/**
+ * Calculate the outline token budget.
+ * Each chapter outline item is ~80-120 tokens of JSON.
+ * We add a generous buffer so 30-chapter books never get truncated.
+ */
+function getOutlineTokenBudget(chapterCount: number): number {
+  // ~150 tokens per chapter item (title + summary + fields) + 512 buffer
+  return Math.max(3000, chapterCount * 150 + 512);
+}
+
 async function callAI(
   apiKey: string,
   model: string,
@@ -72,8 +82,6 @@ async function callAI(
 ): Promise<string> {
   const url = getApiUrl(provider);
 
-  // OpenRouter ALWAYS uses max_tokens.
-  // OpenAI modern models use max_completion_tokens; older ones use max_tokens.
   const tokenParam =
     provider === "openrouter"
       ? { max_tokens: maxTokens }
@@ -97,16 +105,9 @@ async function callAI(
     ...tokenParam,
   };
 
-  // Apply response_format: json_object when:
-  // 1. The caller requests JSON mode (useJsonMode = true)
-  // 2. The model supports it (not o1/o3/o4 reasoning series, not Llama, etc.)
   if (useJsonMode && supportsJsonMode(model)) {
     body.response_format = { type: "json_object" };
   }
-
-  // NOTE: We intentionally do NOT set temperature.
-  // OpenAI's newer models (gpt-5, o1, o3, o4-mini, etc.) reject custom temperature values.
-  // OpenRouter also works fine without an explicit temperature.
 
   console.log(`[callAI] provider=${provider} model=${model} jsonMode=${useJsonMode && supportsJsonMode(model)} maxTokens=${maxTokens}`);
 
@@ -124,7 +125,6 @@ async function callAI(
 
   const data = (await response.json()) as any;
 
-  // Handle multiple response shapes
   const choice = data.choices?.[0];
   if (choice) {
     const msg = choice.message;
@@ -143,12 +143,10 @@ async function callAI(
     }
   }
 
-  // Responses API style (output_text at top level)
   if (typeof data.output_text === "string" && data.output_text.trim()) {
     return data.output_text;
   }
 
-  // Responses API nested output array
   const outputText = data.output?.[0]?.content?.[0]?.text;
   if (typeof outputText === "string" && outputText.trim()) {
     return outputText;
@@ -160,12 +158,10 @@ async function callAI(
 
 /**
  * Robust JSON parser for outline responses.
- * Handles: markdown code fences, raw JSON arrays, wrapped objects, and mixed text.
  */
 function parseOutlineJSON(raw: string): ChapterOutline[] | null {
   if (!raw || raw.trim().length === 0) return null;
 
-  // Strategy 1: Strip markdown code fences (```json ... ``` or ``` ... ```)
   const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) {
     try {
@@ -174,27 +170,24 @@ function parseOutlineJSON(raw: string): ChapterOutline[] | null {
       if (Array.isArray(parsed)) return parsed as ChapterOutline[];
       if (parsed?.chapters) return parsed.chapters as ChapterOutline[];
       if (parsed?.outline) return parsed.outline as ChapterOutline[];
-    } catch { /* try next strategy */ }
+    } catch { /* try next */ }
   }
 
-  // Strategy 2: Find the first [ ... ] JSON array in the response
   const arrayMatch = raw.match(/\[[\s\S]*\]/);
   if (arrayMatch) {
     try {
       const parsed = JSON.parse(arrayMatch[0]);
       if (Array.isArray(parsed)) return parsed as ChapterOutline[];
-    } catch { /* try next strategy */ }
+    } catch { /* try next */ }
   }
 
-  // Strategy 3: Try parsing the entire response as JSON
   try {
     const parsed = JSON.parse(raw.trim());
     if (Array.isArray(parsed)) return parsed as ChapterOutline[];
     if (parsed?.chapters) return parsed.chapters as ChapterOutline[];
     if (parsed?.outline) return parsed.outline as ChapterOutline[];
-  } catch { /* try next strategy */ }
+  } catch { /* try next */ }
 
-  // Strategy 4: Find the first { ... } object and check if it wraps an array
   const objectMatch = raw.match(/\{[\s\S]*\}/);
   if (objectMatch) {
     try {
@@ -206,6 +199,79 @@ function parseOutlineJSON(raw: string): ChapterOutline[] | null {
   }
 
   return null;
+}
+
+/**
+ * Build a rich voice/style instruction block from book fields.
+ * This is injected into every chapter prompt so the AI consistently
+ * applies the author's chosen tone, POV, pacing, and vocabulary.
+ */
+function buildVoiceBlock(book: Book): string {
+  const lines: string[] = [];
+
+  if (book.tone) lines.push(`Tone: ${book.tone}`);
+  if (book.writingStyle) lines.push(`Writing style: ${book.writingStyle}`);
+  if (book.targetAudience) lines.push(`Target audience: ${book.targetAudience}`);
+  if (book.customKnowledge) lines.push(`Domain knowledge to incorporate: ${book.customKnowledge}`);
+
+  return lines.join("\n");
+}
+
+/**
+ * Return type-specific writing instructions for preface, dedication,
+ * epilogue, acknowledgements, and regular chapters.
+ */
+function getTypeInstructions(type: string, chapterTitle: string, chapterSummary: string): string {
+  switch (type) {
+    case "preface":
+      return `You are writing the PREFACE of this book.
+A preface is written in the author's own voice. It should:
+- Explain why the author wrote this book and what inspired it
+- Describe who the book is for and what they will gain
+- Set the emotional tone and create anticipation for what follows
+- Feel personal, warm, and inviting — like a letter to the reader
+- Be 400–700 words in length
+- Do NOT summarize chapter contents — instead, speak to the reader's journey
+
+Title: ${chapterTitle}
+Purpose: ${chapterSummary}`;
+
+    case "dedication":
+      return `You are writing the DEDICATION page of this book.
+A dedication is brief (50–150 words), heartfelt, and personal.
+It is addressed to specific people (family, mentors, readers, etc.)
+Keep it sincere and meaningful. Do not explain the book.
+
+Title: ${chapterTitle}
+Purpose: ${chapterSummary}`;
+
+    case "epilogue":
+      return `You are writing the EPILOGUE of this book.
+An epilogue comes after the final chapter and should:
+- Reflect on the journey the reader has taken through the book
+- Offer a final thought, call to action, or forward-looking vision
+- Feel like a satisfying close — not a summary, but a meaningful ending
+- Be 400–800 words in length
+- Speak directly to the reader in a warm, closing tone
+
+Title: ${chapterTitle}
+Purpose: ${chapterSummary}`;
+
+    case "acknowledgements":
+      return `You are writing the ACKNOWLEDGEMENTS section of this book.
+Acknowledgements should:
+- Thank the people who helped make the book possible (editors, family, mentors, early readers)
+- Feel genuine and specific, not generic
+- Be 200–500 words in length
+- Use a warm, grateful tone
+
+Title: ${chapterTitle}
+Purpose: ${chapterSummary}`;
+
+    default:
+      return `You are writing CHAPTER: "${chapterTitle}"
+Purpose of this chapter: ${chapterSummary}`;
+  }
 }
 
 export const generateBookContent = {
@@ -222,6 +288,8 @@ export const generateBookContent = {
     const chapterCount = numChapters > 0 ? numChapters : (book.suggestedChapters || 15);
     const targetWords = book.targetWordCount || 30000;
     const wordsPerChapter = getTargetWordsPerChapter(book, chapterCount);
+    // Scale token budget so large chapter counts never get truncated
+    const outlineTokens = getOutlineTokenBudget(chapterCount);
 
     const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
@@ -239,17 +307,20 @@ ${book.customKnowledge ? `Additional Context/Knowledge: ${book.customKnowledge}`
 Book length target: ~${targetWords.toLocaleString()} words total (~${wordsPerChapter.toLocaleString()} words per chapter)
 
 Book structure requirements:
-${book.includePreface ? "- Include a Preface as the first section" : ""}
-${book.includeDedication ? "- Include a Dedication page" : ""}
-- Include exactly ${chapterCount} main chapters
-${book.includeAcknowledgements ? "- Include Acknowledgements at the end" : ""}
-${book.includeEpilogue ? "- Include an Epilogue at the end" : ""}
+${book.includePreface ? "- Include a Preface as the FIRST section (type: \"preface\")" : ""}
+${book.includeDedication ? "- Include a Dedication page as an early section (type: \"dedication\")" : ""}
+- Include exactly ${chapterCount} main chapters (type: \"chapter\")
+${book.includeAcknowledgements ? "- Include Acknowledgements at the end (type: \"acknowledgements\")" : ""}
+${book.includeEpilogue ? "- Include an Epilogue at the end (type: \"epilogue\")" : ""}
+
+IMPORTANT: You MUST return ALL ${chapterCount} main chapters plus any front/back matter listed above.
+Do not stop early. Every chapter must have a unique, specific title and a detailed 2-3 sentence summary.
 
 For each section, return a JSON object with these exact fields:
 {
   "chapterNumber": (sequential number starting from 1),
-  "title": "Chapter title",
-  "summary": "2-3 sentence description of what this chapter covers, key points, and its purpose in the book",
+  "title": "Section title",
+  "summary": "2-3 sentence description of what this section covers, key points, and its purpose in the book",
   "type": "preface" | "dedication" | "chapter" | "epilogue" | "acknowledgements"
 }
 
@@ -263,9 +334,9 @@ Return ONLY the JSON array, nothing else.`;
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      2048,
+      outlineTokens,
       provider,
-      true  // useJsonMode = true for outline (we need parseable JSON)
+      true
     );
 
     const parsed = parseOutlineJSON(raw);
@@ -277,11 +348,19 @@ Return ONLY the JSON array, nothing else.`;
         `Please try a different model or check your API key.`
       );
     }
+
+    // Safety check: if the AI returned fewer chapters than requested, log a warning
+    const mainChapters = parsed.filter(c => c.type === "chapter").length;
+    if (mainChapters < chapterCount) {
+      console.warn(`[bookGenerator] Outline has ${mainChapters} main chapters but ${chapterCount} were requested. Model may have truncated.`);
+    }
+
     return parsed;
   },
 
   /**
    * Generate a full chapter with context continuity.
+   * Uses type-specific prompts for preface, epilogue, dedication, acknowledgements.
    */
   async generateChapter(
     book: Book,
@@ -299,8 +378,13 @@ Return ONLY the JSON array, nothing else.`;
     const targetWordsPerChapter = getTargetWordsPerChapter(book, totalChapters);
     const maxTokens = wordsToTokens(targetWordsPerChapter);
 
+    const chapterType = chapter.type || "chapter";
+    const chapterTitle = chapter.title;
+    const chapterSummary = chapterOutlineItem?.summary || "";
+
+    // Build previous chapter context (only for regular chapters — not front/back matter)
     const previousContext =
-      previousChapters.length > 0
+      previousChapters.length > 0 && chapterType === "chapter"
         ? `\n\nPREVIOUS CHAPTERS CONTEXT (for continuity):\n${previousChapters
             .map((c) => `Chapter "${c.title}" summary: ${c.summary}`)
             .join("\n")}`
@@ -310,25 +394,32 @@ Return ONLY the JSON array, nothing else.`;
       .map((o) => `${o.chapterNumber}. ${o.title}: ${o.summary}`)
       .join("\n");
 
+    const voiceBlock = buildVoiceBlock(book);
+    const typeInstructions = getTypeInstructions(chapterType, chapterTitle, chapterSummary);
+
+    // Front/back matter (preface, dedication, epilogue, acknowledgements) gets a focused prompt
+    // Regular chapters get the full outline context for continuity
+    const isSpecialSection = ["preface", "dedication", "epilogue", "acknowledgements"].includes(chapterType);
+
     const systemPrompt = `You are a professional author writing a ${book.genre || "general"} book called "${book.title}".
-Writing style: ${book.writingStyle || "engaging, clear, and professional"}.
-Tone: ${book.tone || "professional and accessible"}.
-Target audience: ${book.targetAudience || "general readers"}.
-${book.customKnowledge ? `Domain knowledge to incorporate: ${book.customKnowledge}` : ""}
+${voiceBlock}
 
 CRITICAL RULES:
 - Write in a natural, human voice. Do NOT sound like AI.
-- Maintain consistency with all previous chapters.
-- Target approximately ${targetWordsPerChapter.toLocaleString()} words for this chapter.
-- Use vivid examples, stories, and concrete details.
-- Do NOT include chapter number or "Chapter X:" prefix — start directly with the content.
-- Do NOT add meta-commentary like "In this chapter..." at the start.`;
+- Do NOT include the chapter number or "Chapter X:" prefix — start directly with the content.
+- Do NOT add meta-commentary like "In this chapter we will..." at the start.
+- Do NOT write a table of contents or list of bullet points as the main content.
+${chapterType === "chapter" ? `- Target approximately ${targetWordsPerChapter.toLocaleString()} words.` : ""}
+- Use vivid examples, stories, and concrete details where appropriate.`;
 
-    const userPrompt = `Write the full content for this chapter:
+    const userPrompt = isSpecialSection
+      ? `${typeInstructions}
 
-CHAPTER: ${chapter.title}
-TYPE: ${chapter.type}
-PURPOSE: ${chapterOutlineItem?.summary || ""}
+FULL BOOK OUTLINE (for context):
+${fullOutline}
+
+Write the complete content now. Follow the type-specific instructions above carefully.`
+      : `${typeInstructions}
 
 FULL BOOK OUTLINE (for context and continuity):
 ${fullOutline}
@@ -344,7 +435,7 @@ Write the complete, full-length chapter content now. Be thorough, detailed, and 
       ],
       maxTokens,
       provider,
-      false  // useJsonMode = false for chapter content (we want prose, not JSON)
+      false
     );
 
     return content.trim();
