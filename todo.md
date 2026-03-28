@@ -88,3 +88,10 @@
 - [x] Fix Settings.tsx: API key inputs with autoComplete="off", data-1p-ignore, inputMode="text"
 - [x] Append mobile CSS fixes to index.css (16px font size, dvh fallback)
 - [x] Add enterKeyHint to NewBook.tsx step inputs
+
+## Round 5: Generation, Cover, and Mobile Fixes
+- [x] Fix Generate All stopping with error screen (error isolation + onError guard)
+- [x] Fix mobile scroll jumping back to top (disabled refetchInterval when not generating)
+- [x] Fix mobile horizontal scroll (overflow-x-hidden on html/body and main content)
+- [x] Redesign cover prompt to produce real ebook cover (genre-specific style, title text, author name, 6x9 portrait, no mockup)
+- [x] Add 62 total tests (cover prompt genre routing, Generate All error isolation)

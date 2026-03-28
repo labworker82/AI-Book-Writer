@@ -55,7 +55,10 @@ export default function BookEditor() {
   // Generate All state
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [generateAllProgress, setGenerateAllProgress] = useState({ done: 0, total: 0 });
+  const [generateAllErrors, setGenerateAllErrors] = useState<string[]>([]);
   const generateAllCancelRef = useRef(false);
+  // Track whether we're actively generating to control polling interval
+  const isActivelyGenerating = generatingChapterId !== null || isGeneratingAll;
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) navigate("/login");
@@ -65,12 +68,22 @@ export default function BookEditor() {
 
   const { data: book, isLoading: bookLoading } = trpc.books.get.useQuery(
     { bookId },
-    { enabled: isAuthenticated && bookId > 0, refetchInterval: 5000 }
+    {
+      enabled: isAuthenticated && bookId > 0,
+      // Only auto-poll when actively generating; otherwise fetch on demand
+      refetchInterval: isActivelyGenerating ? 8000 : false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   const { data: chapters, refetch: refetchChapters } = trpc.chapters.list.useQuery(
     { bookId },
-    { enabled: isAuthenticated && bookId > 0, refetchInterval: 3000 }
+    {
+      enabled: isAuthenticated && bookId > 0,
+      // Only auto-poll when actively generating to avoid scroll jumps
+      refetchInterval: isActivelyGenerating ? 5000 : false,
+      refetchOnWindowFocus: false,
+    }
   );
 
   const { data: selectedChapter, refetch: refetchChapter } = trpc.chapters.get.useQuery(
@@ -107,13 +120,19 @@ export default function BookEditor() {
 
   const generateChapterMutation = trpc.generate.chapter.useMutation({
     onSuccess: () => {
-      toast.success("Chapter written!");
+      // Only show toast for single-chapter generation (not Generate All)
+      if (!isGeneratingAll) {
+        toast.success("Chapter written!");
+      }
       refetchChapters();
       refetchChapter();
     },
     onError: (err) => {
-      toast.error("Chapter generation failed: " + err.message);
-      setGeneratingChapterId(null);
+      // Only show toast for single-chapter generation (not Generate All — loop handles errors)
+      if (!isGeneratingAll) {
+        toast.error("Chapter generation failed: " + err.message);
+        setGeneratingChapterId(null);
+      }
     },
   });
 
@@ -704,8 +723,8 @@ export default function BookEditor() {
         <EditorPanel />
       </div>
 
-      {/* Mobile panels */}
-      <div className="md:hidden flex flex-col overflow-hidden" style={{ height: 'calc(100dvh - 112px)' }}>
+      {/* Mobile panels — w-full + overflow-x-hidden prevents horizontal scroll */}
+      <div className="md:hidden flex flex-col overflow-hidden w-full" style={{ height: 'calc(100dvh - 112px)', maxWidth: '100vw' }}>
         {mobileView === "list" ? (
           <div className="flex flex-col flex-1 overflow-hidden bg-card/50">
             <ChapterListPanel />

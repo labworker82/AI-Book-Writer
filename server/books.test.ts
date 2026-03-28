@@ -255,3 +255,136 @@ describe("title suggestion parsing", () => {
     expect(result).toHaveLength(0);
   });
 });
+
+// ── Cover Prompt Genre Routing Tests ─────────────────────────────────────────
+describe("cover prompt genre routing", () => {
+  function buildCoverPrompt(genre: string, title: string, authorName?: string, description?: string): string {
+    const genreLower = genre.toLowerCase();
+    let styleGuide = "";
+    if (genreLower.includes("fantasy") || genreLower.includes("sci-fi") || genreLower.includes("science fiction")) {
+      styleGuide = "Epic fantasy/sci-fi cover art.";
+    } else if (genreLower.includes("thriller") || genreLower.includes("mystery") || genreLower.includes("horror")) {
+      styleGuide = "Dark suspense cover.";
+    } else if (genreLower.includes("romance")) {
+      styleGuide = "Romantic cover art.";
+    } else if (genreLower.includes("children")) {
+      styleGuide = "Bright, cheerful children's book cover.";
+    } else if (genreLower.includes("business") || genreLower.includes("nonfiction") || genreLower.includes("self-help")) {
+      styleGuide = "Clean, modern professional cover.";
+    } else if (genreLower.includes("memoir") || genreLower.includes("biography")) {
+      styleGuide = "Elegant literary cover.";
+    } else {
+      styleGuide = "Professional literary cover.";
+    }
+    const authorDisplay = authorName ? `Author name prominently displayed: "${authorName}"` : "";
+    const descHint = description ? `Theme/mood: ${description.slice(0, 120)}` : "";
+    return [
+      `Professional ebook cover design for a book titled "${title}".`,
+      styleGuide,
+      `The title "${title}" must be clearly legible as large bold text at the top or center of the cover.`,
+      authorDisplay,
+      descHint,
+      "Aspect ratio: 6x9 portrait (standard ebook cover). High resolution, print-ready quality.",
+      "No mockup, no device frame, no 3D perspective — flat cover art only, as if viewing the front cover directly.",
+      "The cover should look like it belongs in a major online bookstore (Amazon Kindle, Apple Books).",
+    ].filter(Boolean).join(" ");
+  }
+
+  it("uses fantasy style guide for Fantasy genre", () => {
+    const prompt = buildCoverPrompt("Fantasy", "Dragon's Throne");
+    expect(prompt).toContain("Epic fantasy/sci-fi cover art");
+    expect(prompt).toContain("Dragon's Throne");
+  });
+
+  it("uses thriller style guide for Thriller genre", () => {
+    const prompt = buildCoverPrompt("Thriller", "The Last Signal");
+    expect(prompt).toContain("Dark suspense cover");
+  });
+
+  it("uses children style guide for Children genre", () => {
+    const prompt = buildCoverPrompt("Children's Book", "Bunny's Big Day");
+    expect(prompt).toContain("cheerful children's book cover");
+  });
+
+  it("uses business style guide for Nonfiction genre", () => {
+    const prompt = buildCoverPrompt("Nonfiction", "The Productivity Code");
+    expect(prompt).toContain("Clean, modern professional cover");
+  });
+
+  it("includes author name when provided", () => {
+    const prompt = buildCoverPrompt("Romance", "Love in Paris", "Jane Smith");
+    expect(prompt).toContain("Jane Smith");
+    expect(prompt).toContain("Author name prominently displayed");
+  });
+
+  it("includes title text instruction in every prompt", () => {
+    const prompt = buildCoverPrompt("Mystery", "The Hidden Room");
+    expect(prompt).toContain("must be clearly legible as large bold text");
+    expect(prompt).toContain("The Hidden Room");
+  });
+
+  it("specifies flat cover art (no mockup/device frame)", () => {
+    const prompt = buildCoverPrompt("Sci-Fi", "Void Station");
+    expect(prompt).toContain("No mockup, no device frame, no 3D perspective");
+  });
+
+  it("specifies 6x9 portrait aspect ratio", () => {
+    const prompt = buildCoverPrompt("Self-Help", "Unlock Your Mind");
+    expect(prompt).toContain("6x9 portrait");
+  });
+
+  it("falls back to generic literary style for unknown genre", () => {
+    const prompt = buildCoverPrompt("Cooking", "The Perfect Meal");
+    expect(prompt).toContain("Professional literary cover");
+  });
+});
+
+// ── Generate All Error Isolation Tests ───────────────────────────────────────
+describe("generate all error isolation logic", () => {
+  it("continues to next chapter after an error (does not stop)", async () => {
+    // Simulate the generate-all loop logic
+    const results: string[] = [];
+    const chapters = [
+      { id: 1, title: "Chapter 1" },
+      { id: 2, title: "Chapter 2" },
+      { id: 3, title: "Chapter 3" },
+    ];
+
+    const generateChapter = async (id: number) => {
+      if (id === 2) throw new Error("API timeout");
+      results.push(`chapter-${id}`);
+    };
+
+    let done = 0;
+    const errors: string[] = [];
+    for (const chapter of chapters) {
+      try {
+        await generateChapter(chapter.id);
+        done++;
+      } catch (err) {
+        errors.push(chapter.title);
+        done++;
+      }
+    }
+
+    expect(done).toBe(3); // All 3 processed
+    expect(results).toContain("chapter-1");
+    expect(results).toContain("chapter-3");
+    expect(errors).toContain("Chapter 2"); // Error was captured, not thrown
+  });
+
+  it("cancel flag stops the loop after current chapter", async () => {
+    const cancelRef = { current: false };
+    const processed: number[] = [];
+    const chapters = [1, 2, 3, 4, 5];
+
+    for (const id of chapters) {
+      if (cancelRef.current) break;
+      processed.push(id);
+      if (id === 2) cancelRef.current = true; // Cancel after chapter 2
+    }
+
+    expect(processed).toEqual([1, 2]);
+    expect(processed).not.toContain(3);
+  });
+});

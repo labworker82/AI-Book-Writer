@@ -426,8 +426,39 @@ export const appRouter = router({
         const apiKey = settings?.openaiApiKey;
         if (!apiKey) throw new Error("OpenAI API key required for image generation. Please add it in Settings.");
 
-        const prompt: string = input.customPrompt ||
-          `Professional book cover for "${book.title}". Genre: ${book.genre || "general"}. ${book.description || ""}. Cinematic, high quality, suitable for publishing.`;
+        // Build a genre-specific cover style guide
+        const genre = book.genre || "Nonfiction";
+        const genreLower = genre.toLowerCase();
+        let styleGuide = "";
+        if (genreLower.includes("fantasy") || genreLower.includes("sci-fi") || genreLower.includes("science fiction")) {
+          styleGuide = "Epic fantasy/sci-fi cover art. Dramatic lighting, otherworldly atmosphere, rich deep colors (navy, gold, purple). Painterly illustration style.";
+        } else if (genreLower.includes("thriller") || genreLower.includes("mystery") || genreLower.includes("horror")) {
+          styleGuide = "Dark suspense cover. High contrast, moody shadows, cinematic noir atmosphere. Dark background with a single dramatic focal element.";
+        } else if (genreLower.includes("romance")) {
+          styleGuide = "Romantic cover art. Warm, soft lighting, elegant and emotional. Pastel or jewel tones. Sophisticated and tasteful.";
+        } else if (genreLower.includes("children")) {
+          styleGuide = "Bright, cheerful children's book cover. Vibrant colors, friendly illustration style, playful and inviting.";
+        } else if (genreLower.includes("business") || genreLower.includes("nonfiction") || genreLower.includes("self-help")) {
+          styleGuide = "Clean, modern professional cover. Bold typography-focused design, strong geometric shapes, high contrast. Corporate or minimalist aesthetic.";
+        } else if (genreLower.includes("memoir") || genreLower.includes("biography")) {
+          styleGuide = "Elegant literary cover. Sophisticated color palette, artistic photography or painterly style, emotional and personal feel.";
+        } else {
+          styleGuide = "Professional literary cover. Clean design, strong visual hierarchy, high quality publishing aesthetic.";
+        }
+
+        const authorDisplay = book.authorName ? `Author name prominently displayed: "${book.authorName}"` : "";
+        const descHint = book.description ? `Theme/mood: ${book.description.slice(0, 120)}` : "";
+
+        const prompt: string = input.customPrompt || [
+          `Professional ebook cover design for a book titled "${book.title}".`,
+          styleGuide,
+          `The title "${book.title}" must be clearly legible as large bold text at the top or center of the cover.`,
+          authorDisplay,
+          descHint,
+          "Aspect ratio: 6x9 portrait (standard ebook cover). High resolution, print-ready quality.",
+          "No mockup, no device frame, no 3D perspective — flat cover art only, as if viewing the front cover directly.",
+          "The cover should look like it belongs in a major online bookstore (Amazon Kindle, Apple Books).",
+        ].filter(Boolean).join(" ");
 
         const imageUrl = await generateImageWithUserKey(apiKey, settings?.imageModel ?? "dall-e-3", prompt);
         await createBookImage({ bookId: input.bookId, userId: ctx.user.id, type: "cover", prompt, imageUrl });

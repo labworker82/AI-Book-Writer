@@ -129,8 +129,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   );
 
   return (
-    /* FIX: Use dvh for proper mobile viewport */
-    <div className="bg-background flex" style={{ minHeight: '100dvh' }}>
+    /* FIX: Use dvh for proper mobile viewport; overflow-x-hidden prevents horizontal scroll on mobile */
+    <div className="bg-background flex overflow-x-hidden" style={{ minHeight: '100dvh', width: '100%', maxWidth: '100vw' }}>
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-sidebar border-r border-sidebar-border flex-col fixed h-full z-20">
         <SidebarContent />
@@ -178,8 +178,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <SidebarContent />
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 md:ml-64 pt-14 md:pt-0" style={{ minHeight: '100dvh' }}>
+      {/* Main Content — overflow-x-hidden prevents horizontal scroll; min-w-0 prevents flex overflow */}
+      <main className="flex-1 md:ml-64 pt-14 md:pt-0 overflow-x-hidden min-w-0" style={{ minHeight: '100dvh', maxWidth: '100%' }}>
         {children}
       </main>
     </div>

@@ -104,6 +104,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html, body {
+    /* Prevent horizontal scroll on mobile — critical for fixed sidebar layout */
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Outfit', 'Inter', sans-serif;
