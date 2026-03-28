@@ -62,11 +62,14 @@ async function callAI(
 ): Promise<string> {
   const url = getApiUrl(provider);
 
-  // Use max_completion_tokens for modern OpenAI models; max_tokens for older/OpenRouter
+  // OpenRouter ALWAYS uses max_tokens (regardless of model).
+  // OpenAI modern models use max_completion_tokens; older ones use max_tokens.
   const tokenParam =
-    provider === "openai" && isModernModel(model)
-      ? { max_completion_tokens: maxTokens }
-      : { max_tokens: maxTokens };
+    provider === "openrouter"
+      ? { max_tokens: maxTokens }
+      : isModernModel(model)
+        ? { max_completion_tokens: maxTokens }
+        : { max_tokens: maxTokens };
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

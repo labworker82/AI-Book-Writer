@@ -23,20 +23,27 @@ const OPENAI_TEXT_MODELS = [
 ];
 
 const OPENROUTER_TEXT_MODELS = [
-  { value: "anthropic/claude-opus-4", label: "Claude Opus 4 — Most Powerful" },
-  { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5 — Best Balance" },
-  { value: "anthropic/claude-3.7-sonnet", label: "Claude 3.7 Sonnet — Fast & Smart" },
-  { value: "anthropic/claude-3.5-haiku", label: "Claude 3.5 Haiku — Fast & Cheap" },
-  { value: "google/gemini-2.5-pro-preview", label: "Gemini 2.5 Pro — Google Flagship" },
-  { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash — Very Fast" },
-  { value: "meta-llama/llama-4-maverick", label: "Llama 4 Maverick — Open Source" },
-  { value: "meta-llama/llama-4-scout", label: "Llama 4 Scout — Efficient" },
-  { value: "deepseek/deepseek-r2", label: "DeepSeek R2 — Reasoning" },
-  { value: "deepseek/deepseek-chat-v3-0324", label: "DeepSeek V3 — Budget Friendly" },
+  // Anthropic Claude — verified available on OpenRouter
+  { value: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet — Best Balance (Recommended)" },
+  { value: "anthropic/claude-3.5-haiku", label: "Claude 3.5 Haiku — Fast & Affordable" },
+  { value: "anthropic/claude-3-opus", label: "Claude 3 Opus — Most Powerful" },
+  { value: "anthropic/claude-3-sonnet", label: "Claude 3 Sonnet — Balanced" },
+  // Google Gemini — verified available on OpenRouter
+  { value: "google/gemini-pro-1.5", label: "Gemini 1.5 Pro — Long Context" },
+  { value: "google/gemini-flash-1.5", label: "Gemini 1.5 Flash — Very Fast" },
+  { value: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash — Latest Google" },
+  // Meta Llama — verified available on OpenRouter
+  { value: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B — Open Source Flagship" },
+  { value: "meta-llama/llama-3.1-8b-instruct", label: "Llama 3.1 8B — Fast & Free" },
+  // DeepSeek — verified available on OpenRouter
+  { value: "deepseek/deepseek-chat", label: "DeepSeek V3 — Budget Friendly" },
+  { value: "deepseek/deepseek-r1", label: "DeepSeek R1 — Reasoning" },
+  // OpenAI via OpenRouter
   { value: "openai/gpt-4o", label: "GPT-4o (via OpenRouter)" },
-  { value: "openai/gpt-4.1", label: "GPT-4.1 (via OpenRouter)" },
-  { value: "x-ai/grok-3", label: "Grok 3 — xAI Flagship" },
-  { value: "mistralai/mistral-large-2411", label: "Mistral Large — European AI" },
+  { value: "openai/gpt-4o-mini", label: "GPT-4o Mini (via OpenRouter)" },
+  // Mistral
+  { value: "mistralai/mistral-large", label: "Mistral Large — European AI" },
+  { value: "mistralai/mistral-7b-instruct", label: "Mistral 7B — Fast & Free" },
 ];
 
 const IMAGE_MODELS = [
@@ -76,7 +83,7 @@ export default function Settings() {
   const handleProviderChange = (val: "openai" | "openrouter") => {
     setApiProvider(val);
     if (val === "openai") setTextModel("gpt-4o");
-    else setTextModel("anthropic/claude-sonnet-4-5");
+    else setTextModel("anthropic/claude-3.5-sonnet");
   };
 
   const saveMutation = trpc.settings.save.useMutation({
