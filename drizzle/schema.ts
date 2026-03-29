@@ -34,6 +34,10 @@ export const appSettings = mysqlTable("app_settings", {
   apiProvider: varchar("apiProvider", { length: 32 }).default("openai").notNull(),
   textModel: varchar("textModel", { length: 128 }).default("gpt-4o").notNull(),
   imageModel: varchar("imageModel", { length: 64 }).default("gpt-image-1").notNull(),
+  // Author profile — only injected into prompts when includeAuthorInPrompts is true
+  penName: varchar("penName", { length: 256 }),
+  authorBio: text("authorBio"),
+  includeAuthorInPrompts: boolean("includeAuthorInPrompts").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

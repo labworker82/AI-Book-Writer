@@ -131,6 +131,10 @@ export const appRouter = router({
         apiProvider: z.enum(["openai", "openrouter"]).optional(),
         textModel: z.string().optional(),
         imageModel: z.string().optional(),
+        // Author profile fields
+        penName: z.string().optional(),
+        authorBio: z.string().optional(),
+        includeAuthorInPrompts: z.boolean().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         await upsertSettings(ctx.user.id, input);
@@ -337,8 +341,12 @@ export const appRouter = router({
           ? input.numChapters
           : (book.suggestedChapters || 15);
 
+        // Only inject author profile when user has explicitly opted in
+        const authorProfile = settings?.includeAuthorInPrompts
+          ? { penName: settings.penName || undefined, authorBio: settings.authorBio || undefined }
+          : undefined;
         const outline = await generateBookContent.generateOutline(
-          book, chapterCount, apiKey, model, "openrouter"
+          book, chapterCount, apiKey, model, "openrouter", authorProfile
         );
         await updateBook(input.bookId, ctx.user.id, { outline, totalChapters: outline.length });
         return { outline };
@@ -366,8 +374,12 @@ export const appRouter = router({
         await updateChapter(input.chapterId, ctx.user.id, { status: "generating" });
 
         try {
+          // Only inject author profile when user has explicitly opted in
+          const authorProfile = settings?.includeAuthorInPrompts
+            ? { penName: settings.penName || undefined, authorBio: settings.authorBio || undefined }
+            : undefined;
           const content = await generateBookContent.generateChapter(
-            book, chapter, previousChapters, apiKey, model, "openrouter"
+            book, chapter, previousChapters, apiKey, model, "openrouter", authorProfile
           );
           const wordCount = content.split(/\s+/).filter(Boolean).length;
           const summary = await generateBookContent.generateSummary(

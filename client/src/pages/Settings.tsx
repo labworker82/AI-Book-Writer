@@ -5,7 +5,7 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import {
   Settings2, Key, Cpu, Image, ArrowLeft, CheckCircle2,
-  Eye, EyeOff, ExternalLink, Zap
+  Eye, EyeOff, ExternalLink, Zap, User
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,11 @@ export default function Settings() {
   const [showKey, setShowKey] = useState(false);
   const [imageModel, setImageModel] = useState("dall-e-3");
 
+  // Author Profile
+  const [penName, setPenName] = useState("");
+  const [authorBio, setAuthorBio] = useState("");
+  const [includeAuthorInPrompts, setIncludeAuthorInPrompts] = useState(false);
+
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -64,6 +69,9 @@ export default function Settings() {
   useEffect(() => {
     if (settings) {
       setImageModel(settings.imageModel || "dall-e-3");
+      setPenName((settings as any).penName || "");
+      setAuthorBio((settings as any).authorBio || "");
+      setIncludeAuthorInPrompts((settings as any).includeAuthorInPrompts || false);
 
       // Determine if the saved textModel is in the popular list or custom
       const savedModel = settings.textModel || "xiaomi/mimo-v2-pro";
@@ -126,7 +134,12 @@ export default function Settings() {
     if (openrouterKey.trim() && !openrouterKey.startsWith("sk-or-...")) {
       data.openrouterApiKey = openrouterKey.trim();
     }
-    saveMutation.mutate(data);
+    saveMutation.mutate({
+      ...data,
+      penName: penName.trim() || undefined,
+      authorBio: authorBio.trim() || undefined,
+      includeAuthorInPrompts,
+    });
   };
 
   if (isLoading) {
@@ -373,6 +386,84 @@ export default function Settings() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          {/* ── AUTHOR PROFILE SECTION ── */}
+          <div className="rounded-2xl border border-border bg-card/50 p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <User className="w-5 h-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold text-foreground">Author Profile</h2>
+              <span className="ml-auto text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">
+                Optional
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground -mt-2">
+              Your pen name and bio are <strong className="text-foreground">never</strong> included in AI prompts
+              unless you turn on the toggle below. When enabled, the AI will write in your voice and credit your name.
+            </p>
+
+            {/* Pen Name */}
+            <div>
+              <Label className="text-foreground mb-1.5 block font-medium">Pen Name</Label>
+              <Input
+                type="text"
+                placeholder="e.g. J.K. Rowling, Stephen King, or your real name"
+                value={penName}
+                onChange={(e) => setPenName(e.target.value)}
+                className="bg-input border-border text-foreground h-11"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                enterKeyHint="done"
+              />
+            </div>
+
+            {/* Author Bio / Voice Notes */}
+            <div>
+              <Label className="text-foreground mb-1.5 block font-medium">Author Bio / Voice Notes</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Describe your writing background, preferred style, or any voice notes you want the AI to follow.
+                Do <strong>not</strong> include dates, years, or personal details you don't want in your books.
+              </p>
+              <textarea
+                placeholder="e.g. I write conversational self-help books aimed at first-time entrepreneurs. I prefer short paragraphs, real-world examples, and an encouraging tone."
+                value={authorBio}
+                onChange={(e) => setAuthorBio(e.target.value)}
+                className="w-full min-h-[100px] rounded-lg bg-input border border-border text-foreground text-sm p-3 resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Include in Prompts Toggle */}
+            <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/40 border border-border">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={includeAuthorInPrompts}
+                onClick={() => setIncludeAuthorInPrompts(!includeAuthorInPrompts)}
+                className={`relative mt-0.5 w-11 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                  includeAuthorInPrompts ? "bg-primary" : "bg-muted-foreground/30"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    includeAuthorInPrompts ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Include my author profile in every book I generate
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  When ON, your pen name and bio will be added to every chapter prompt.
+                  When OFF (default), the AI writes without any personal attribution.
+                </p>
+              </div>
             </div>
           </div>
 

@@ -283,7 +283,8 @@ export const generateBookContent = {
     numChapters: number,
     apiKey: string,
     model: string,
-    provider = "openrouter"
+    provider = "openrouter",
+    authorProfile?: { penName?: string; authorBio?: string }
   ): Promise<ChapterOutline[]> {
     const chapterCount = numChapters > 0 ? numChapters : (book.suggestedChapters || 15);
     const targetWords = book.targetWordCount || 30000;
@@ -291,7 +292,12 @@ export const generateBookContent = {
     // Scale token budget so large chapter counts never get truncated
     const outlineTokens = getOutlineTokenBudget(chapterCount);
 
-    const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.
+    // Only include author info when user has explicitly opted in via Settings
+    const authorContext = authorProfile?.penName || authorProfile?.authorBio
+      ? `\nAuthor: ${authorProfile.penName || "(not specified)"}${authorProfile.authorBio ? `\nAuthor background: ${authorProfile.authorBio}` : ""}`
+      : "";
+
+    const systemPrompt = `You are a professional book editor and author. Your task is to create a detailed, well-structured book outline.${authorContext}
 Return ONLY a valid JSON array of chapter objects. No markdown, no explanation, just the JSON array.`;
 
     const userPrompt = `Create a complete book outline for the following book:
@@ -368,7 +374,8 @@ Return ONLY the JSON array, nothing else.`;
     previousChapters: { title: string; summary: string; content: string }[],
     apiKey: string,
     model: string,
-    provider = "openrouter"
+    provider = "openrouter",
+    authorProfile?: { penName?: string; authorBio?: string }
   ): Promise<string> {
     const outline = (book.outline as ChapterOutline[]) || [];
     const chapterOutlineItem = outline.find(
@@ -401,7 +408,12 @@ Return ONLY the JSON array, nothing else.`;
     // Regular chapters get the full outline context for continuity
     const isSpecialSection = ["preface", "dedication", "epilogue", "acknowledgements"].includes(chapterType);
 
-    const systemPrompt = `You are a professional author writing a ${book.genre || "general"} book called "${book.title}".
+    // Only include author info when user has explicitly opted in via Settings
+    const authorContext = authorProfile?.penName || authorProfile?.authorBio
+      ? `\nAuthor pen name: ${authorProfile.penName || "(not specified)"}${authorProfile.authorBio ? `\nAuthor background/voice notes: ${authorProfile.authorBio}` : ""}`
+      : "";
+
+    const systemPrompt = `You are a professional author writing a ${book.genre || "general"} book called "${book.title}".${authorContext}
 ${voiceBlock}
 
 CRITICAL RULES:
@@ -409,6 +421,7 @@ CRITICAL RULES:
 - Do NOT include the chapter number or "Chapter X:" prefix — start directly with the content.
 - Do NOT add meta-commentary like "In this chapter we will..." at the start.
 - Do NOT write a table of contents or list of bullet points as the main content.
+- Do NOT invent author names, publication dates, or personal details unless they were explicitly provided above.
 ${chapterType === "chapter" ? `- Target approximately ${targetWordsPerChapter.toLocaleString()} words.` : ""}
 - Use vivid examples, stories, and concrete details where appropriate.`;
 
