@@ -496,6 +496,112 @@ export const appRouter = router({
         });
         return { imageUrl };
       }),
+
+    regenerateChapter: protectedProcedure
+      .input(z.object({
+        bookId: z.number(),
+        chapterId: z.number(),
+        toneOverride: z.string().optional(), // e.g. "more conversational", "more formal", "shorten by 30%"
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const book = await getBookById(input.bookId, ctx.user.id);
+        if (!book) throw new Error("Book not found");
+        const chapter = await getChapterById(input.chapterId, ctx.user.id);
+        if (!chapter) throw new Error("Chapter not found");
+        const settings = await getSettingsByUserId(ctx.user.id);
+
+        const apiKey = settings?.openrouterApiKey;
+        if (!apiKey) throw new Error("OpenRouter API key not configured. Please go to Settings.");
+        const model = settings?.textModel || "anthropic/claude-3.5-sonnet";
+
+        const allChapters = await getChaptersByBookId(input.bookId);
+        const previousChapters = allChapters
+          .filter((c) => c.chapterNumber < chapter.chapterNumber && c.status === "complete")
+          .map((c) => ({ title: c.title, summary: c.summary || "", content: c.content || "" }));
+
+        await updateChapter(input.chapterId, ctx.user.id, { status: "generating" });
+
+        try {
+          const authorProfile = settings?.includeAuthorInPrompts
+            ? { penName: settings.penName || undefined, authorBio: settings.authorBio || undefined }
+            : undefined;
+          const content = await generateBookContent.generateChapter(
+            book, chapter, previousChapters, apiKey, model, "openrouter", authorProfile, input.toneOverride
+          );
+          const wordCount = content.split(/\s+/).filter(Boolean).length;
+          const summary = await generateBookContent.generateSummary(content, apiKey, model, "openrouter");
+          await updateChapter(input.chapterId, ctx.user.id, { content, summary, wordCount, status: "complete" });
+
+          const updatedChapters = await getChaptersByBookId(input.bookId);
+          const totalWords = updatedChapters.reduce((sum, c) => sum + (c.wordCount || 0), 0);
+          await updateBook(input.bookId, ctx.user.id, { wordCount: totalWords });
+
+          return { content, wordCount, summary };
+        } catch (err) {
+          await updateChapter(input.chapterId, ctx.user.id, { status: "error" });
+          throw err;
+        }
+      }),
+
+    exportDocx: protectedProcedure
+      .input(z.object({ bookId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const book = await getBookById(input.bookId, ctx.user.id);
+        if (!book) throw new Error("Book not found");
+        const chapters = await getChaptersByBookId(input.bookId);
+        const completed = chapters.filter((c) => c.status === "complete" && c.content);
+        if (completed.length === 0) throw new Error("No completed chapters to export");
+
+        const { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, PageBreak } = await import("docx");
+
+        const children: any[] = [
+          // Title page
+          new Paragraph({
+            text: book.title,
+            heading: HeadingLevel.TITLE,
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+          }),
+        ];
+
+        if (book.authorName) {
+          children.push(new Paragraph({
+            children: [new TextRun({ text: `by ${book.authorName}`, italics: true, size: 28 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 800 },
+          }));
+        }
+
+        for (const chapter of completed) {
+          // Page break before each chapter
+          children.push(new Paragraph({ children: [new PageBreak()] }));
+
+          // Chapter heading
+          children.push(new Paragraph({
+            text: chapter.title,
+            heading: HeadingLevel.HEADING_1,
+            spacing: { after: 300 },
+          }));
+
+          // Chapter body — split by double newlines into paragraphs
+          const paragraphs = (chapter.content || "").split(/\n\n+/).filter((p: string) => p.trim());
+          for (const para of paragraphs) {
+            children.push(new Paragraph({
+              children: [new TextRun({ text: para.trim(), size: 24 })],
+              spacing: { after: 200, line: 360 },
+            }));
+          }
+        }
+
+        const doc = new Document({
+          sections: [{ properties: {}, children }],
+        });
+
+        const { Packer } = await import("docx");
+        const buffer = await Packer.toBuffer(doc);
+        const base64 = buffer.toString("base64");
+        return { base64, filename: `${book.title.replace(/[^a-z0-9]/gi, "_")}.docx` };
+      }),
   }),
 
   images: router({

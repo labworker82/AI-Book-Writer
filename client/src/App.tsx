@@ -9,6 +9,7 @@ import NewBook from "./pages/NewBook";
 import BookEditor from "./pages/BookEditor";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
+import Onboarding from "./pages/Onboarding";
 
 function Router() {
   return (
@@ -19,6 +20,7 @@ function Router() {
       <Route path={"/books/:id"} component={BookEditor} />
       <Route path={"/settings"} component={Settings} />
       <Route path={"/login"} component={Login} />
+      <Route path={"/onboarding"} component={Onboarding} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

@@ -375,7 +375,8 @@ Return ONLY the JSON array, nothing else.`;
     apiKey: string,
     model: string,
     provider = "openrouter",
-    authorProfile?: { penName?: string; authorBio?: string }
+    authorProfile?: { penName?: string; authorBio?: string },
+    toneOverride?: string
   ): Promise<string> {
     const outline = (book.outline as ChapterOutline[]) || [];
     const chapterOutlineItem = outline.find(
@@ -423,7 +424,8 @@ CRITICAL RULES:
 - Do NOT write a table of contents or list of bullet points as the main content.
 - Do NOT invent author names, publication dates, or personal details unless they were explicitly provided above.
 ${chapterType === "chapter" ? `- Target approximately ${targetWordsPerChapter.toLocaleString()} words.` : ""}
-- Use vivid examples, stories, and concrete details where appropriate.`;
+- Use vivid examples, stories, and concrete details where appropriate.
+${toneOverride ? `\nTONE OVERRIDE: ${toneOverride}. Apply this to the entire chapter.` : ""}`;
 
     const userPrompt = isSpecialSection
       ? `${typeInstructions}

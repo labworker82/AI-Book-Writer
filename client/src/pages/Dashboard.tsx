@@ -23,9 +23,24 @@ export default function Dashboard() {
   const { isAuthenticated, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
 
+  // Check if onboarding is needed (new user, no API key configured)
+  const { data: settings, isLoading: settingsLoading } = trpc.settings.get.useQuery(undefined, {
+    enabled: isAuthenticated,
+  });
+
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) navigate("/login");
-  }, [isAuthenticated, authLoading, navigate]);
+    if (!authLoading && !isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    // Redirect new users to onboarding if they haven't set up their OpenRouter key
+    if (isAuthenticated && !settingsLoading && settings) {
+      const onboardingDone = localStorage.getItem("onboarding_complete");
+      if (!settings.hasOpenRouterKey && !onboardingDone) {
+        navigate("/onboarding");
+      }
+    }
+  }, [isAuthenticated, authLoading, settings, settingsLoading, navigate]);
 
   const { data: books, isLoading, refetch } = trpc.books.list.useQuery(undefined, {
     enabled: isAuthenticated,

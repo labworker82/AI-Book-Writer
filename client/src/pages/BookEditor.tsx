@@ -221,6 +221,51 @@ export default function BookEditor() {
     generateAllCancelRef.current = true;
   };
 
+  // ── Tone Override / Regenerate ──
+  const [toneMenuChapterId, setToneMenuChapterId] = useState<number | null>(null);
+  const TONE_OPTIONS = [
+    { label: "More conversational", value: "Rewrite in a more conversational, friendly tone" },
+    { label: "More formal", value: "Rewrite in a more formal, professional tone" },
+    { label: "Shorten by ~30%", value: "Shorten this chapter by approximately 30% while keeping all key points" },
+    { label: "Expand by ~30%", value: "Expand this chapter by approximately 30% with more detail and examples" },
+    { label: "More storytelling", value: "Add more narrative storytelling, anecdotes, and vivid examples" },
+    { label: "More actionable", value: "Make this chapter more actionable with clear steps and takeaways" },
+  ];
+
+  const regenerateChapterMutation = trpc.generate.regenerateChapter.useMutation({
+    onSuccess: () => {
+      toast.success("Chapter regenerated!");
+      refetchChapters();
+      refetchChapter();
+      setToneMenuChapterId(null);
+    },
+    onError: (err) => {
+      toast.error("Regeneration failed: " + err.message);
+      refetchChapters();
+    },
+  });
+
+  const handleRegenerateWithTone = (chapterId: number, toneValue: string) => {
+    setToneMenuChapterId(null);
+    regenerateChapterMutation.mutate({ bookId, chapterId, toneOverride: toneValue });
+  };
+
+  // ── DOCX Export ──
+  const exportDocxMutation = trpc.generate.exportDocx.useMutation({
+    onSuccess: (data) => {
+      const bytes = Uint8Array.from(atob(data.base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Downloaded as Word document!");
+    },
+    onError: (err) => toast.error("DOCX export failed: " + err.message),
+  });
+
   const handleSaveContent = () => {
     if (!selectedChapterId) return;
     updateChapterMutation.mutate({ chapterId: selectedChapterId, content: editingContent });
@@ -441,27 +486,64 @@ export default function BookEditor() {
             )}
 
             {chapters?.map((chapter) => (
-              <button
-                key={chapter.id}
-                onClick={() => {
-                  setSelectedChapterId(chapter.id);
-                  setMobileView("editor");
-                }}
-                className={`w-full text-left p-3 rounded-xl transition-all border min-h-[52px] ${
-                  selectedChapterId === chapter.id
-                    ? "bg-primary/15 border-primary/30 text-primary"
-                    : "bg-transparent border-transparent hover:bg-muted/40 text-foreground active:bg-muted/60"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {STATUS_ICON[chapter.status]}
-                  <span className="text-xs font-medium line-clamp-1">{chapter.title}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="capitalize">{TYPE_LABEL[chapter.type] || chapter.type}</span>
-                  {chapter.wordCount ? <span>· {chapter.wordCount.toLocaleString()}w</span> : null}
-                </div>
-              </button>
+              <div key={chapter.id} className="relative">
+                <button
+                  onClick={() => {
+                    setSelectedChapterId(chapter.id);
+                    setMobileView("editor");
+                    setToneMenuChapterId(null);
+                  }}
+                  className={`w-full text-left p-3 rounded-xl transition-all border min-h-[52px] ${
+                    selectedChapterId === chapter.id
+                      ? "bg-primary/15 border-primary/30 text-primary"
+                      : "bg-transparent border-transparent hover:bg-muted/40 text-foreground active:bg-muted/60"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    {regenerateChapterMutation.isPending && regenerateChapterMutation.variables?.chapterId === chapter.id
+                      ? <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                      : STATUS_ICON[chapter.status]}
+                    <span className="text-xs font-medium line-clamp-1 flex-1">{chapter.title}</span>
+                    {chapter.status === "complete" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setToneMenuChapterId(toneMenuChapterId === chapter.id ? null : chapter.id);
+                        }}
+                        className="ml-auto p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground flex-shrink-0"
+                        title="Regenerate with different tone"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="capitalize">{TYPE_LABEL[chapter.type] || chapter.type}</span>
+                    {chapter.wordCount ? <span>· {chapter.wordCount.toLocaleString()}w</span> : null}
+                  </div>
+                </button>
+                {/* Tone override dropdown */}
+                {toneMenuChapterId === chapter.id && (
+                  <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+                    <p className="text-xs text-muted-foreground px-3 py-2 border-b border-border">Regenerate with tone:</p>
+                    {TONE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => handleRegenerateWithTone(chapter.id, opt.value)}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted/60 text-foreground transition-colors"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setToneMenuChapterId(null)}
+                      className="w-full text-left px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 border-t border-border"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
           </>
         )}
@@ -525,6 +607,18 @@ export default function BookEditor() {
             <p>{completedChapters} of {chapters?.length || 0} chapters complete</p>
             <p>{totalWords.toLocaleString()} total words</p>
           </div>
+          <Button
+            size="sm"
+            onClick={() => exportDocxMutation.mutate({ bookId })}
+            disabled={exportDocxMutation.isPending || completedChapters === 0}
+            className="btn-glow text-white text-xs w-full min-h-[44px]"
+          >
+            {exportDocxMutation.isPending ? (
+              <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Building Word doc...</>
+            ) : (
+              <><Download className="w-3 h-3 mr-1" /> Download as Word (.docx)</>
+            )}
+          </Button>
           <Button size="sm" onClick={() => handleExport("txt")} variant="outline" className="w-full text-xs border-border min-h-[44px]">
             <Download className="w-3 h-3 mr-1" /> Export as .txt
           </Button>
